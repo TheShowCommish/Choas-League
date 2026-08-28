@@ -455,6 +455,160 @@ describe("chat", () => {
   });
 });
 
+describe("league creation", () => {
+  test("a signed-in user can create a league and read it straight back", async () => {
+    // This is the exact call the app makes: insert with RETURNING, which
+    // applies the SELECT policy to the new row before AFTER-row triggers
+    // have fired. It used to fail outright.
+    const carol = await db.createUser("carol@example.com", "Carol");
+    await db.actAs(carol);
+
+    const created = await db.one<{ id: string; join_code: string }>(
+      `insert into public.leagues (name, season, commissioner_id)
+       values ('Carol Cup', $1, $2) returning id, join_code`,
+      [SEASON, carol],
+    );
+
+    // The triggers must have run: membership, roster slots, scoring.
+    const membership = await db.q<{ role: string }>(
+      "select role from public.league_members where league_id = $1",
+      [created.id],
+    );
+    assert.deepEqual(membership.map((m) => m.role), ["commissioner"]);
+
+    const slots = await db.q(
+      "select id from public.roster_slots where league_id = $1",
+      [created.id],
+    );
+    assert.equal(slots.length, 9, "the default roster is seeded");
+
+    const rules = await db.q(
+      "select id from public.league_scoring_rules where league_id = $1",
+      [created.id],
+    );
+    assert.ok(rules.length > 130, "the scoring catalog is seeded");
+
+    // And joining it works end to end.
+    await db.q("select public.join_league($1, $2)", [
+      created.join_code,
+      "Carol FC",
+    ]);
+    const team = await db.q(
+      "select id from public.teams where league_id = $1",
+      [created.id],
+    );
+    assert.equal(team.length, 1);
+  });
+
+  test("you cannot create a league in somebody else's name", async () => {
+    await db.actAs(world.bob.userId);
+
+    await assert.rejects(
+      () =>
+        db.q(
+          `insert into public.leagues (name, season, commissioner_id)
+           values ('Not Mine', $1, $2)`,
+          [SEASON, world.alice.userId],
+        ),
+      /row-level security/,
+    );
+  });
+});
+
+describe("trades", () => {
+  test("you can only propose a trade from your own team", async () => {
+    await db.actAs(world.bob.userId);
+
+    // Proposing from Alice's team, as Bob.
+    await assert.rejects(
+      () =>
+        db.q(
+          `insert into public.trades
+             (league_id, proposing_team_id, receiving_team_id, season, week)
+           values ($1, $2, $3, $4, 1)`,
+          [world.leagueA, world.alice.teamId, world.bob.teamId, SEASON],
+        ),
+      /row-level security/,
+    );
+  });
+
+  test("a proposal from your own team is allowed, and both sides see it", async () => {
+    await db.actAs(world.bob.userId);
+
+    const trade = await db.one<{ id: string }>(
+      `insert into public.trades
+         (league_id, proposing_team_id, receiving_team_id, season, week)
+       values ($1, $2, $3, $4, 1) returning id`,
+      [world.leagueA, world.bob.teamId, world.alice.teamId, SEASON],
+    );
+
+    await db.actAs(world.alice.userId);
+    const seen = await db.q(
+      "select id from public.trades where id = $1",
+      [trade.id],
+    );
+    assert.equal(seen.length, 1, "the receiving manager sees the offer");
+
+    // But an outsider does not.
+    await db.actAs(world.mallory.userId);
+    const hidden = await db.q(
+      "select id from public.trades where id = $1",
+      [trade.id],
+    );
+    assert.equal(hidden.length, 0);
+  });
+
+  test("a manager cannot propose a trade that is already accepted", async () => {
+    await db.actAs(world.bob.userId);
+
+    // Otherwise you could skip the other manager agreeing to it.
+    await assert.rejects(
+      () =>
+        db.q(
+          `insert into public.trades
+             (league_id, proposing_team_id, receiving_team_id, season, week, status)
+           values ($1, $2, $3, $4, 1, 'accepted')`,
+          [world.leagueA, world.bob.teamId, world.alice.teamId, SEASON],
+        ),
+      /row-level security/,
+    );
+  });
+
+  test("an outsider cannot execute a trade they are not part of", async () => {
+    await db.actAs(world.bob.userId);
+    const trade = await db.one<{ id: string }>(
+      `insert into public.trades
+         (league_id, proposing_team_id, receiving_team_id, season, week)
+       values ($1, $2, $3, $4, 1) returning id`,
+      [world.leagueA, world.bob.teamId, world.alice.teamId, SEASON],
+    );
+
+    // Alice accepts, as she is entitled to.
+    await db.actAs(world.alice.userId);
+    await db.q("update public.trades set status = 'accepted' where id = $1", [
+      trade.id,
+    ]);
+
+    // Mallory, in another league entirely, must not be able to push it
+    // through even though execute_trade is SECURITY DEFINER.
+    await db.actAs(world.mallory.userId);
+    await assert.rejects(
+      () => db.q("select public.execute_trade($1)", [trade.id]),
+      /not your trade/,
+    );
+
+    // The parties themselves can.
+    await db.actAs(world.alice.userId);
+    await db.q("select public.execute_trade($1)", [trade.id]);
+
+    const done = await db.one<{ status: string }>(
+      "select status from public.trades where id = $1",
+      [trade.id],
+    );
+    assert.equal(done.status, "completed");
+  });
+});
+
 describe("private draft queues", () => {
   test("your draft queue is yours alone", async () => {
     await db.actAs(world.bob.userId);
