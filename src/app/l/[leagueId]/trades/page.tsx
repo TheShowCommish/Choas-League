@@ -2,8 +2,8 @@ import { getLeagueContext } from "@/lib/league";
 import { getTeamRoster } from "@/lib/roster";
 import { createClient } from "@/lib/supabase/server";
 import type { Trade } from "@/lib/types";
-import { TradeList } from "./trade-list";
-import { ProposeTrade } from "./propose-trade";
+import type { ValuedPlayer } from "@/lib/trade-finder";
+import { TradeTabs } from "./tabs";
 
 export interface TradeItemRow {
   id: string;
@@ -20,10 +20,13 @@ export interface TradePlayerOption {
 
 export default async function TradesPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ leagueId: string }>;
+  searchParams: Promise<{ with?: string }>;
 }) {
   const { leagueId } = await params;
+  const { with: partner } = await searchParams;
   const { league, teams, myTeam } = await getLeagueContext(leagueId);
   const supabase = await createClient();
 
@@ -38,6 +41,34 @@ export default async function TradesPage({
       .from("trade_items")
       .select("id, trade_id, from_team_id, player_id, faab_amount"),
   ]);
+
+  const { data: valueRows } = await supabase.rpc("league_trade_values", {
+    p_league: leagueId,
+  });
+
+  const values: ValuedPlayer[] = (valueRows ?? []).map(
+    (row: {
+      player_id: string;
+      full_name: string;
+      pos: string | null;
+      team_abbr: string | null;
+      owner_team_id: string;
+      on_block: boolean;
+      games: number;
+      avg_points: number;
+      value: number;
+    }) => ({
+      playerId: row.player_id,
+      fullName: row.full_name,
+      position: row.pos,
+      teamAbbr: row.team_abbr,
+      ownerTeamId: row.owner_team_id,
+      onBlock: row.on_block,
+      games: Number(row.games),
+      avgPoints: Number(row.avg_points),
+      value: Number(row.value),
+    }),
+  );
 
   const tradeRows = (trades ?? []) as Trade[];
   const itemRows = (items ?? []) as TradeItemRow[];
@@ -86,6 +117,12 @@ export default async function TradesPage({
       )
     : {};
 
+  const pendingForMe = myTeam
+    ? tradeRows.filter(
+        (t) => t.status === "pending" && t.receiving_team_id === myTeam.id,
+      ).length
+    : 0;
+
   return (
     <div className="space-y-5">
       <header>
@@ -96,22 +133,17 @@ export default async function TradesPage({
         </p>
       </header>
 
-      {myTeam && otherTeams.length > 0 && (
-        <ProposeTrade
-          leagueId={leagueId}
-          myTeam={myTeam}
-          otherTeams={otherTeams}
-          rosters={rosters as Record<string, TradePlayerOption[]>}
-        />
-      )}
-
-      <TradeList
+      <TradeTabs
         leagueId={leagueId}
+        myTeam={myTeam}
+        teams={teams}
+        values={values}
         trades={tradeRows}
         items={itemRows}
-        teams={teams}
-        myTeamId={myTeam?.id ?? null}
         playerNames={playerNames}
+        rosters={rosters as Record<string, TradePlayerOption[]>}
+        initialPartner={partner ?? null}
+        pendingForMe={pendingForMe}
       />
     </div>
   );

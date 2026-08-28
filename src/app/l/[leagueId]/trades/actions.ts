@@ -8,6 +8,27 @@ export interface TradeResult {
   ok?: string;
 }
 
+/** Put one of your own players on the trading block, or take him off. */
+export async function setTradingBlock(
+  leagueId: string,
+  teamId: string,
+  playerId: string,
+  on: boolean,
+): Promise<TradeResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_trading_block", {
+    p_team: teamId,
+    p_player: playerId,
+    p_on: on,
+  });
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/l/${leagueId}/trades`);
+  revalidatePath(`/l/${leagueId}/my-team`);
+  return {};
+}
+
 /**
  * Proposes a trade.
  *

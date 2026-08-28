@@ -62,11 +62,25 @@ export default async function TeamPage({
         />
       </header>
 
-      {team.id === myTeam?.id && (
-        <Link href={`/l/${leagueId}/my-team?week=${week}`} className="btn btn-sm">
-          Edit this lineup
-        </Link>
-      )}
+      <div className="flex flex-wrap gap-2">
+        {team.id === myTeam?.id ? (
+          <Link
+            href={`/l/${leagueId}/my-team?week=${week}`}
+            className="btn btn-sm"
+          >
+            Edit this lineup
+          </Link>
+        ) : (
+          myTeam && (
+            <Link
+              href={`/l/${leagueId}/trades?with=${team.id}`}
+              className="btn btn-sm btn-primary"
+            >
+              Find a trade with {team.name}
+            </Link>
+          )
+        )}
+      </div>
 
       <section>
         <div className="mb-2 flex items-baseline justify-between">
