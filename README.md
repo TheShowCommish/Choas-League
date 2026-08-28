@@ -40,7 +40,7 @@ so the page never scrolls sideways.
 ### 1. Run the database migrations
 
 In the Supabase dashboard, open **SQL Editor** and run each file in
-`supabase/migrations/` **in filename order**, from `0001` to `0018`.
+`supabase/migrations/` **in filename order**, from `0001` to `0021`.
 Paste one file at a time and run it.
 
 If you have the Supabase CLI linked to the project, this does the same
@@ -232,9 +232,23 @@ npm run build
 
 ### Tests
 
-`scripts/league-logic.test.ts` runs the real migrations against an
-in-memory Postgres (PGlite — no Docker) and exercises the PL/pgSQL:
-scoring, waivers, drafts, trades, roster legality, schedule generation.
+`scripts/league-logic.test.ts`, `auction.test.ts` and `playoffs.test.ts`
+run the real migrations against an in-memory Postgres (PGlite — no
+Docker) and exercise the PL/pgSQL: scoring, waivers, drafts, trades,
+roster legality, schedule and bracket generation.
+
+`scripts/rls.test.ts` is the one that matters most. It runs as the
+`authenticated` role with `FORCE ROW LEVEL SECURITY` on every table, so
+the policies are actually enforced rather than bypassed, and checks the
+guarantees the whole app rests on: you only see leagues you belong to,
+you can only control your own team, and nobody — not even the
+commissioner — can see a pending waiver bid.
+
+That suite immediately found a showstopper: creating a league was
+impossible for any normal user, because the triggers that seed the
+commissioner's membership and the default roster ran as the caller and
+were blocked by the very policies they needed to satisfy. Every other
+test ran as superuser and so never saw it. Fixed in migration 0021.
 
 `scripts/ingest.test.ts` checks the nflverse mapping against live data.
 The load-bearing test scores 300 real players from our mapped stats and
