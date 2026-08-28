@@ -24,13 +24,18 @@
  *
  * Needs a direct Postgres connection, which the anon and service-role
  * keys cannot give you -- those go through PostgREST, which will not run
- * DDL. Add to .env.local, from Dashboard > Project Settings > Database >
- * Connection string > URI:
+ * DDL. Set SUPABASE_DB_URL in .env.local from Dashboard > Project
+ * Settings > Database > Connection string.
  *
- *   SUPABASE_DB_URL=postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres
+ * Copy whichever string the dashboard gives rather than assembling one.
+ * The three options are not interchangeable:
  *
- * Use the direct connection or the session pooler. The transaction
- * pooler on port 6543 cannot hold the advisory lock this takes.
+ *   Session pooler      port 5432, user postgres.<ref>. Use this one. It
+ *                       is reachable over IPv4.
+ *   Direct connection   port 5432, user postgres. IPv6 only, so it will
+ *                       not connect at all from most home networks.
+ *   Transaction pooler  port 6543. No good here: it cannot hold the
+ *                       advisory lock this script takes.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";

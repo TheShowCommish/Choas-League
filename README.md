@@ -39,8 +39,15 @@ so the page never scrolls sideways.
 
 ### 1. Run the database migrations
 
-Add `SUPABASE_DB_URL` to `.env.local` (Dashboard > Project Settings >
-Database > Connection string > URI), then:
+Add `SUPABASE_DB_URL` to `.env.local`. Get it from Dashboard > Project
+Settings > Database > Connection string, and **copy the Session pooler
+one** -- the direct connection is IPv6-only and will not reach most home
+networks, while the transaction pooler on port 6543 cannot hold the
+advisory lock the push takes. Replace only the password placeholder;
+leave the rest of the string exactly as the dashboard gives it, since
+the pooler's username is `postgres.<ref>` rather than `postgres`.
+
+Then:
 
 ```bash
 npm run db:push
