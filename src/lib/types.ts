@@ -264,6 +264,8 @@ export interface Trade {
     | "vetoed"
     | "completed";
   note: string;
+  season: number;
+  week: number;
   created_at: string;
   expires_at: string;
 }

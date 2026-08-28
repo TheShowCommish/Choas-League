@@ -27,6 +27,7 @@ export function LeagueNav({
     { href: `${base}/my-team`, label: "My Team", short: "Team" },
     { href: `${base}/matchups`, label: "Matchups", short: "Games" },
     { href: `${base}/players`, label: "Players", short: "Players" },
+    { href: `${base}/trades`, label: "Trades", short: "Trades" },
     { href: `${base}/standings`, label: "Standings", short: "Table" },
     { href: `${base}/transactions`, label: "Transactions", short: "Log" },
     { href: `${base}/chat`, label: "Chat", short: "Chat" },
