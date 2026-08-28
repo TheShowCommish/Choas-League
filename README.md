@@ -25,7 +25,7 @@ Built on Next.js and Supabase. Multi-league from the ground up.
 | `/l/[id]/matchups` | The week's games, and a full head-to-head breakdown |
 | `/l/[id]/standings` | The table |
 | `/l/[id]/transactions` | The full, filterable league audit trail |
-| `/l/[id]/draft` | Live draft room (hidden until the commissioner opens it) |
+| `/l/[id]/draft` | Live draft room, snake or auction (hidden until the commissioner opens it) |
 | `/l/[id]/chat` | League message board |
 | `/l/[id]/admin` | Scoring, roster shape, settings, and commissioner tools |
 
@@ -136,8 +136,8 @@ You can run any job by hand from the **Actions** tab → *Scheduled jobs*
 3. Set your scoring on the **Scoring** tab. This is the interesting part.
 4. Set your roster shape on the **Roster** tab.
 5. **Tools** → generate the schedule.
-6. **Tools** → generate the draft board, then open the draft room on the
-   night.
+6. **Tools** → pick snake or auction, generate the draft, then open the
+   room on the night.
 
 ---
 

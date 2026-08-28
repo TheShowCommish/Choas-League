@@ -74,3 +74,61 @@ export async function unqueuePlayer(
   if (error) return { error: error.message };
   return {};
 }
+
+// --- Auction ---------------------------------------------------------
+
+export async function nominatePlayer(
+  leagueId: string,
+  draftId: string,
+  playerId: string,
+  openingBid: number,
+): Promise<DraftResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("nominate_player", {
+    p_draft: draftId,
+    p_player: playerId,
+    p_opening_bid: Math.max(1, Math.floor(openingBid)),
+  });
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/l/${leagueId}/draft`);
+  return { ok: "Nominated." };
+}
+
+export async function placeBid(
+  leagueId: string,
+  lotId: string,
+  teamId: string,
+  amount: number,
+): Promise<DraftResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("place_bid", {
+    p_lot: lotId,
+    p_team: teamId,
+    p_amount: Math.floor(amount),
+  });
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/l/${leagueId}/draft`);
+  return { ok: "Bid placed." };
+}
+
+/**
+ * Awards the open lot once its clock has run out. Called from the
+ * client by whoever has the room open; the RPC re-checks the deadline
+ * itself, so several browsers racing to call it is harmless.
+ */
+export async function closeLot(
+  leagueId: string,
+  lotId: string,
+): Promise<DraftResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("close_auction_lot", { p_lot: lotId });
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/l/${leagueId}/draft`);
+  return {};
+}

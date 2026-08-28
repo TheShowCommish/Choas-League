@@ -12,89 +12,26 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createTestDb, type TestDb } from "./lib/test-db.ts";
-
-const SEASON = 2026;
+import {
+  SEASON,
+  buildLeague,
+  giveStats,
+  makePlayer,
+} from "./lib/fixtures.ts";
 
 let db: TestDb;
 
-/** A commissioner, three managers, a league, four teams. */
-interface Fixture {
-  commish: string;
-  managers: string[];
-  leagueId: string;
-  teamIds: string[];
-}
-
-async function buildLeague(name: string, overrides = ""): Promise<Fixture> {
-  const commish = await db.createUser(`commish-${name}@example.com`, "Commish");
-  await db.actAs(commish);
-
-  const league = await db.one<{ id: string; join_code: string }>(
-    `insert into public.leagues (name, season, commissioner_id)
-     values ($1, $2, $3) returning id, join_code`,
-    [name, SEASON, commish],
-  );
-
-  if (overrides) {
-    await db.exec(`update public.leagues set ${overrides} where id = '${league.id}'`);
-  }
-
-  // The commissioner needs a team too.
-  const commishTeam = await db.one<{ join_league: string }>(
-    "select public.join_league($1, $2) as join_league",
-    [league.join_code, "Commish Team"],
-  );
-
-  const managers: string[] = [];
-  const teamIds: string[] = [commishTeam.join_league];
-
-  for (let i = 1; i <= 3; i++) {
-    const uid = await db.createUser(`mgr${i}-${name}@example.com`, `Manager ${i}`);
-    await db.actAs(uid);
-    const t = await db.one<{ join_league: string }>(
-      "select public.join_league($1, $2) as join_league",
-      [league.join_code, `Team ${i}`],
-    );
-    managers.push(uid);
-    teamIds.push(t.join_league);
-  }
-
-  await db.actAs(commish);
-  return { commish, managers, leagueId: league.id, teamIds };
-}
-
-/** Insert an NFL game and a stat line for a player. */
-async function giveStats(
+/** Bound to this suite's database so the tests read without the extra arg. */
+const league = (name: string, overrides?: string) =>
+  buildLeague(db, name, overrides);
+const player = (id: string, name: string, position: string, team?: string) =>
+  makePlayer(db, id, name, position, team);
+const stats = (
   playerId: string,
   week: number,
-  stats: Record<string, number>,
-  source: "live" | "final" = "final",
-) {
-  const gameId = `${SEASON}_${String(week).padStart(2, "0")}_TEST_${playerId}`;
-  await db.q(
-    `insert into public.nfl_games (id, season, week, home_team, away_team, status)
-     values ($1, $2, $3, 'KC', 'BUF', 'final')
-     on conflict (id) do nothing`,
-    [gameId, SEASON, week],
-  );
-  await db.q(
-    `insert into public.player_game_stats
-       (player_id, game_id, season, week, stats, source)
-     values ($1, $2, $3, $4, $5, $6)
-     on conflict (player_id, game_id) do update
-       set stats = excluded.stats, source = excluded.source`,
-    [playerId, gameId, SEASON, week, JSON.stringify(stats), source],
-  );
-}
-
-async function makePlayer(id: string, name: string, position: string, team = "KC") {
-  await db.q(
-    `insert into public.nfl_players (id, full_name, position, team_abbr)
-     values ($1, $2, $3, $4) on conflict (id) do nothing`,
-    [id, name, position, team],
-  );
-  return id;
-}
+  values: Record<string, number>,
+  source?: "live" | "final",
+) => giveStats(db, playerId, week, values, source);
 
 before(async () => {
   db = await createTestDb();
@@ -108,7 +45,7 @@ after(async () => {
 
 describe("league setup", () => {
   test("a new league gets default roster slots and scoring rules", async () => {
-    const f = await buildLeague("setup");
+    const f = await league("setup");
 
     const slots = await db.q<{ slot_key: string; count: number }>(
       "select slot_key, count from public.roster_slots where league_id = $1 order by order_index",
@@ -134,7 +71,7 @@ describe("league setup", () => {
   });
 
   test("joining is idempotent and does not create a second team", async () => {
-    const f = await buildLeague("idempotent");
+    const f = await league("idempotent");
     const code = await db.one<{ join_code: string }>(
       "select join_code from public.leagues where id = $1",
       [f.leagueId],
@@ -151,7 +88,7 @@ describe("league setup", () => {
   });
 
   test("teams start with the league FAAB budget", async () => {
-    const f = await buildLeague("faab-budget", "faab_budget = 250");
+    const f = await league("faab-budget", "faab_budget = 250");
     // The budget default applies to teams created after the change.
     await db.actAs(f.commish);
     const code = await db.one<{ join_code: string }>(
@@ -176,11 +113,11 @@ describe("league setup", () => {
 
 describe("scoring engine", () => {
   test("applies points-per-unit from the league rule table", async () => {
-    const f = await buildLeague("scoring");
-    const pid = await makePlayer("SCORE_WR", "Test Receiver", "WR");
+    const f = await league("scoring");
+    const pid = await player("SCORE_WR", "Test Receiver", "WR");
 
     // Default rules: 0.1/rec yard, 6/rec TD, 1/reception.
-    await giveStats(pid, 1, {
+    await stats(pid, 1, {
       receptions: 8,
       receiving_yards: 120,
       receiving_tds: 2,
@@ -201,9 +138,9 @@ describe("scoring engine", () => {
   });
 
   test("a scoring change re-scores the same stat line", async () => {
-    const f = await buildLeague("rescoring");
-    const pid = await makePlayer("RESCORE_WR", "Rescore Receiver", "WR");
-    await giveStats(pid, 1, { receptions: 10, receiving_yards: 100 });
+    const f = await league("rescoring");
+    const pid = await player("RESCORE_WR", "Rescore Receiver", "WR");
+    await stats(pid, 1, { receptions: 10, receiving_yards: 100 });
 
     await db.q("select public.recompute_week_scores($1, $2, $3)", [f.leagueId, SEASON, 1]);
     let row = await db.one<{ points: string }>(
@@ -227,9 +164,9 @@ describe("scoring engine", () => {
   });
 
   test("scores an obscure stat once the commissioner turns it on", async () => {
-    const f = await buildLeague("obscure");
-    const pid = await makePlayer("YAC_WR", "YAC Merchant", "WR");
-    await giveStats(pid, 1, {
+    const f = await league("obscure");
+    const pid = await player("YAC_WR", "YAC Merchant", "WR");
+    await stats(pid, 1, {
       receptions: 5,
       receiving_yards: 60,
       receiving_yards_after_catch: 55,
@@ -257,12 +194,12 @@ describe("scoring engine", () => {
   });
 
   test("position-restricted rules only apply to that position", async () => {
-    const f = await buildLeague("positional");
-    const wr = await makePlayer("POS_WR", "Positional WR", "WR");
-    const te = await makePlayer("POS_TE", "Positional TE", "TE");
+    const f = await league("positional");
+    const wr = await player("POS_WR", "Positional WR", "WR");
+    const te = await player("POS_TE", "Positional TE", "TE");
 
-    await giveStats(wr, 1, { receptions: 5 });
-    await giveStats(te, 1, { receptions: 5 });
+    await stats(wr, 1, { receptions: 5 });
+    await stats(te, 1, { receptions: 5 });
 
     // TE premium: receptions worth 1.5 for tight ends only.
     await db.q(
@@ -288,8 +225,8 @@ describe("scoring engine", () => {
   });
 
   test("team defenses score through the same path as players", async () => {
-    const f = await buildLeague("dst");
-    await giveStats("DST_KC", 1, {
+    const f = await league("dst");
+    await stats("DST_KC", 1, {
       dst_sacks: 4,
       dst_interceptions: 2,
       dst_pa_1_6: 1,
@@ -306,9 +243,9 @@ describe("scoring engine", () => {
   });
 
   test("a live stat line is not marked final", async () => {
-    const f = await buildLeague("liveflag");
-    const pid = await makePlayer("LIVE_RB", "Live Runner", "RB");
-    await giveStats(pid, 1, { rushing_yards: 50 }, "live");
+    const f = await league("liveflag");
+    const pid = await player("LIVE_RB", "Live Runner", "RB");
+    await stats(pid, 1, { rushing_yards: 50 }, "live");
     await db.q("select public.recompute_week_scores($1, $2, $3)", [f.leagueId, SEASON, 1]);
 
     const row = await db.one<{ is_final: boolean }>(
@@ -323,14 +260,14 @@ describe("scoring engine", () => {
 
 describe("matchups and standings", () => {
   test("starters count toward the matchup score and the bench does not", async () => {
-    const f = await buildLeague("matchup");
+    const f = await league("matchup");
     await db.actAs(f.commish);
     await db.q("select public.generate_schedule($1)", [f.leagueId]);
 
-    const starter = await makePlayer("MU_START", "Starter", "WR");
-    const benched = await makePlayer("MU_BENCH", "Benched", "WR");
-    await giveStats(starter, 1, { receiving_yards: 100 }); // 10 pts
-    await giveStats(benched, 1, { receiving_yards: 200 }); // 20 pts, benched
+    const starter = await player("MU_START", "Starter", "WR");
+    const benched = await player("MU_BENCH", "Benched", "WR");
+    await stats(starter, 1, { receiving_yards: 100 }); // 10 pts
+    await stats(benched, 1, { receiving_yards: 200 }); // 20 pts, benched
 
     const home = f.teamIds[0];
     await db.q(
@@ -351,7 +288,7 @@ describe("matchups and standings", () => {
   });
 
   test("the schedule pairs every team each week with no repeats", async () => {
-    const f = await buildLeague("schedule");
+    const f = await league("schedule");
     await db.actAs(f.commish);
     await db.q("select public.generate_schedule($1)", [f.leagueId]);
 
@@ -379,7 +316,7 @@ describe("matchups and standings", () => {
   });
 
   test("standings tally wins from finalised matchups", async () => {
-    const f = await buildLeague("standings");
+    const f = await league("standings");
     await db.actAs(f.commish);
     await db.q("select public.generate_schedule($1)", [f.leagueId]);
 
@@ -406,8 +343,8 @@ describe("matchups and standings", () => {
 
 describe("roster moves", () => {
   test("adding a free agent puts him on the roster and logs it", async () => {
-    const f = await buildLeague("addfa");
-    const pid = await makePlayer("FA_RB", "Free Agent RB", "RB");
+    const f = await league("addfa");
+    const pid = await player("FA_RB", "Free Agent RB", "RB");
 
     await db.actAs(f.managers[0]);
     await db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], pid]);
@@ -426,8 +363,8 @@ describe("roster moves", () => {
   });
 
   test("two teams cannot roster the same player", async () => {
-    const f = await buildLeague("contested");
-    const pid = await makePlayer("CONTESTED", "Contested Player", "WR");
+    const f = await league("contested");
+    const pid = await player("CONTESTED", "Contested Player", "WR");
 
     await db.actAs(f.managers[0]);
     await db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], pid]);
@@ -440,8 +377,8 @@ describe("roster moves", () => {
   });
 
   test("you cannot add to a team you do not own", async () => {
-    const f = await buildLeague("notyours");
-    const pid = await makePlayer("NOTYOURS", "Someone", "WR");
+    const f = await league("notyours");
+    const pid = await player("NOTYOURS", "Someone", "WR");
 
     await db.actAs(f.managers[0]);
     await assert.rejects(
@@ -451,8 +388,8 @@ describe("roster moves", () => {
   });
 
   test("a dropped player goes on waivers rather than straight back to free agency", async () => {
-    const f = await buildLeague("dropwaiver");
-    const pid = await makePlayer("DROPPED", "Dropped Player", "RB");
+    const f = await league("dropwaiver");
+    const pid = await player("DROPPED", "Dropped Player", "RB");
 
     await db.actAs(f.managers[0]);
     await db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], pid]);
@@ -472,7 +409,7 @@ describe("roster moves", () => {
   });
 
   test("a full roster is rejected unless you drop someone", async () => {
-    const f = await buildLeague("full");
+    const f = await league("full");
     // Shrink the roster to two slots so the test stays small.
     await db.actAs(f.commish);
     await db.q("delete from public.roster_slots where league_id = $1", [f.leagueId]);
@@ -482,9 +419,9 @@ describe("roster moves", () => {
       [f.leagueId],
     );
 
-    const a = await makePlayer("FULL_A", "Player A", "WR");
-    const b = await makePlayer("FULL_B", "Player B", "WR");
-    const c = await makePlayer("FULL_C", "Player C", "WR");
+    const a = await player("FULL_A", "Player A", "WR");
+    const b = await player("FULL_B", "Player B", "WR");
+    const c = await player("FULL_C", "Player C", "WR");
 
     await db.actAs(f.managers[0]);
     const team = f.teamIds[1];
@@ -506,8 +443,8 @@ describe("roster moves", () => {
   });
 
   test("dropping a player clears him from unlocked lineups", async () => {
-    const f = await buildLeague("dropslineup");
-    const pid = await makePlayer("LINEUP_DROP", "Lineup Drop", "WR");
+    const f = await league("dropslineup");
+    const pid = await player("LINEUP_DROP", "Lineup Drop", "WR");
 
     await db.actAs(f.managers[0]);
     const team = f.teamIds[1];
@@ -547,8 +484,8 @@ describe("waivers", () => {
   }
 
   test("the highest FAAB bid wins and the budget is debited", async () => {
-    const f = await buildLeague("faab");
-    const pid = await makePlayer("FAAB_WR", "FAAB Target", "WR");
+    const f = await league("faab");
+    const pid = await player("FAAB_WR", "FAAB Target", "WR");
 
     await claim(f.leagueId, f.teamIds[1], pid, 15);
     await claim(f.leagueId, f.teamIds[2], pid, 42);
@@ -590,8 +527,8 @@ describe("waivers", () => {
   });
 
   test("a bid over the remaining budget is rejected, not silently honoured", async () => {
-    const f = await buildLeague("overbid");
-    const pid = await makePlayer("OVERBID", "Overbid Target", "WR");
+    const f = await league("overbid");
+    const pid = await player("OVERBID", "Overbid Target", "WR");
 
     await db.q("update public.teams set faab_remaining = 10 where id = $1", [f.teamIds[1]]);
     await claim(f.leagueId, f.teamIds[1], pid, 80);
@@ -614,9 +551,9 @@ describe("waivers", () => {
   });
 
   test("one team winning two players spends both bids", async () => {
-    const f = await buildLeague("twoclaims");
-    const a = await makePlayer("TWO_A", "Target A", "WR");
-    const b = await makePlayer("TWO_B", "Target B", "RB");
+    const f = await league("twoclaims");
+    const a = await player("TWO_A", "Target A", "WR");
+    const b = await player("TWO_B", "Target B", "RB");
 
     await claim(f.leagueId, f.teamIds[1], a, 30);
     await claim(f.leagueId, f.teamIds[1], b, 20);
@@ -632,8 +569,8 @@ describe("waivers", () => {
   });
 
   test("waiver priority mode moves the winner to the back of the order", async () => {
-    const f = await buildLeague("priority", "waiver_type = 'priority'");
-    const pid = await makePlayer("PRIO_WR", "Priority Target", "WR");
+    const f = await league("priority", "waiver_type = 'priority'");
+    const pid = await player("PRIO_WR", "Priority Target", "WR");
 
     // Team at priority 1 should win regardless of bid amount.
     const priorities = await db.q<{ id: string; waiver_priority: number }>(
@@ -667,8 +604,8 @@ describe("waivers", () => {
   });
 
   test("a claim on a player who is already rostered fails cleanly", async () => {
-    const f = await buildLeague("staleclaim");
-    const pid = await makePlayer("STALE", "Already Owned", "WR");
+    const f = await league("staleclaim");
+    const pid = await player("STALE", "Already Owned", "WR");
 
     await db.actAs(f.managers[0]);
     await db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], pid]);
@@ -690,7 +627,7 @@ describe("waivers", () => {
 
 describe("draft", () => {
   test("a snake draft reverses the order on even rounds", async () => {
-    const f = await buildLeague("snake");
+    const f = await league("snake");
     await db.actAs(f.commish);
     await db.q("update public.drafts set rounds = 3 where league_id = $1", [f.leagueId]).catch(() => {});
     const d = await db.one<{ generate_draft: string }>(
@@ -715,7 +652,7 @@ describe("draft", () => {
   });
 
   test("only the team on the clock can pick, and the clock advances", async () => {
-    const f = await buildLeague("onclock");
+    const f = await league("onclock");
     await db.actAs(f.commish);
     const d = await db.one<{ generate_draft: string }>(
       "select public.generate_draft($1) as generate_draft",
@@ -732,13 +669,16 @@ describe("draft", () => {
       "select owner_id from public.teams where id = $1",
       [onClock.team_id],
     );
+    // Must not be the commissioner, who is allowed to pick for anyone.
     const notOnClock = await db.one<{ owner_id: string }>(
       `select owner_id from public.teams
-       where league_id = $1 and id <> $2 and owner_id is not null limit 1`,
-      [f.leagueId, onClock.team_id],
+       where league_id = $1 and id <> $2
+         and owner_id is not null and owner_id <> $3
+       limit 1`,
+      [f.leagueId, onClock.team_id, f.commish],
     );
 
-    const pid = await makePlayer("DRAFT_QB", "Draft QB", "QB");
+    const pid = await player("DRAFT_QB", "Draft QB", "QB");
 
     await db.actAs(notOnClock.owner_id);
     await assert.rejects(
@@ -763,7 +703,7 @@ describe("draft", () => {
   });
 
   test("a drafted player cannot be drafted again", async () => {
-    const f = await buildLeague("dupepick");
+    const f = await league("dupepick");
     await db.actAs(f.commish);
     const d = await db.one<{ generate_draft: string }>(
       "select public.generate_draft($1) as generate_draft",
@@ -771,7 +711,7 @@ describe("draft", () => {
     );
     await db.q("update public.drafts set status = 'live' where id = $1", [d.generate_draft]);
 
-    const pid = await makePlayer("DUPE_RB", "Dupe RB", "RB");
+    const pid = await player("DUPE_RB", "Dupe RB", "RB");
     await db.q("select public.make_draft_pick($1, $2)", [d.generate_draft, pid]);
     await assert.rejects(
       () => db.q("select public.make_draft_pick($1, $2)", [d.generate_draft, pid]),
@@ -780,7 +720,7 @@ describe("draft", () => {
   });
 
   test("finishing the last pick completes the draft and starts the season", async () => {
-    const f = await buildLeague("draftend");
+    const f = await league("draftend");
     await db.actAs(f.commish);
     const d = await db.one<{ generate_draft: string }>(
       "select public.generate_draft($1) as generate_draft",
@@ -792,7 +732,7 @@ describe("draft", () => {
     await db.q("update public.drafts set status = 'live' where id = $1", [draftId]);
 
     for (let i = 0; i < 4; i++) {
-      const pid = await makePlayer(`END_${i}`, `End Player ${i}`, "WR");
+      const pid = await player(`END_${i}`, `End Player ${i}`, "WR");
       await db.q("select public.make_draft_pick($1, $2)", [draftId, pid]);
     }
 
@@ -802,11 +742,11 @@ describe("draft", () => {
     );
     assert.equal(draft.status, "complete");
 
-    const league = await db.one<{ status: string }>(
+    const leagueRow = await db.one<{ status: string }>(
       "select status from public.leagues where id = $1",
       [f.leagueId],
     );
-    assert.equal(league.status, "in_season");
+    assert.equal(leagueRow.status, "in_season");
   });
 });
 
@@ -814,9 +754,9 @@ describe("draft", () => {
 
 describe("trades", () => {
   test("an executed trade swaps players and moves FAAB", async () => {
-    const f = await buildLeague("trade");
-    const mine = await makePlayer("TRADE_MINE", "My Guy", "RB");
-    const yours = await makePlayer("TRADE_YOURS", "Your Guy", "WR");
+    const f = await league("trade");
+    const mine = await player("TRADE_MINE", "My Guy", "RB");
+    const yours = await player("TRADE_YOURS", "Your Guy", "WR");
 
     await db.actAs(f.managers[0]);
     await db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], mine]);
@@ -873,8 +813,8 @@ describe("trades", () => {
   });
 
   test("a traded player does not go on waivers", async () => {
-    const f = await buildLeague("tradewaiver");
-    const pid = await makePlayer("TRADED", "Traded Guy", "TE");
+    const f = await league("tradewaiver");
+    const pid = await player("TRADED", "Traded Guy", "TE");
 
     await db.actAs(f.managers[0]);
     await db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], pid]);

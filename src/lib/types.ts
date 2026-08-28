@@ -248,6 +248,8 @@ export interface DraftPick {
   team_id: string;
   player_id: string | null;
   is_autopick: boolean;
+  /** What the pick cost at auction; null in a snake draft. */
+  bid_amount: number | null;
   picked_at: string | null;
 }
 

@@ -3,6 +3,7 @@ import { getLeagueContext } from "@/lib/league";
 import { createClient } from "@/lib/supabase/server";
 import type { Draft, DraftPick } from "@/lib/types";
 import { DraftRoom } from "./draft-room";
+import { AuctionRoom, type AuctionLot } from "./auction-room";
 
 export interface DraftablePlayer {
   player_id: string;
@@ -22,13 +23,13 @@ export default async function DraftPage({
     await getLeagueContext(leagueId);
   const supabase = await createClient();
 
-  const { data: draft } = await supabase
+  const { data: draftRow } = await supabase
     .from("drafts")
     .select("*")
     .eq("league_id", leagueId)
     .maybeSingle();
 
-  if (!draft) {
+  if (!draftRow) {
     return (
       <div className="card">
         <h1 className="h1 mb-2">No draft yet</h1>
@@ -46,14 +47,16 @@ export default async function DraftPage({
     );
   }
 
-  const [{ data: picks }, { data: pool }, { data: queue }] = await Promise.all([
+  const draft = draftRow as Draft;
+
+  const [{ data: picks }, { data: pool }] = await Promise.all([
     supabase
       .from("draft_picks")
       .select("*")
       .eq("draft_id", draft.id)
       .order("pick_number"),
     // 300 covers a full draft's worth of relevant players without
-    // shipping the whole 2,000-row player table to the browser.
+    // shipping the whole player table to the browser.
     supabase.rpc("league_player_pool", {
       p_league: leagueId,
       p_availability: "available",
@@ -61,24 +64,74 @@ export default async function DraftPage({
       p_limit: 300,
       p_offset: 0,
     }),
-    myTeam
-      ? supabase
-          .from("draft_queue")
-          .select("player_id, rank")
-          .eq("team_id", myTeam.id)
-          .order("rank")
-      : Promise.resolve({ data: [] }),
   ]);
+
+  const pickRows = (picks ?? []) as DraftPick[];
+  const available = (pool ?? []) as DraftablePlayer[];
+
+  if (draft.type === "auction") {
+    const [{ data: lot }, { data: nominator }, { data: maxBid }] =
+      await Promise.all([
+        supabase
+          .from("auction_lots")
+          .select("id, player_id, nominated_by, high_bid, high_bidder_id, status, closes_at")
+          .eq("draft_id", draft.id)
+          .eq("status", "open")
+          .maybeSingle(),
+        supabase.rpc("auction_nominator", { p_draft: draft.id }),
+        myTeam
+          ? supabase.rpc("auction_max_bid", {
+              p_draft: draft.id,
+              p_team: myTeam.id,
+            })
+          : Promise.resolve({ data: 0 }),
+      ]);
+
+    // Budgets are derived from picks won rather than stored, so they
+    // cannot drift out of step with what was actually spent.
+    const budgets: Record<string, number> = {};
+    for (const team of teams) {
+      const spent = pickRows
+        .filter((p) => p.team_id === team.id)
+        .reduce((sum, p) => sum + (p.bid_amount ?? 0), 0);
+      budgets[team.id] = draft.auction_budget - spent;
+    }
+
+    return (
+      <AuctionRoom
+        leagueId={leagueId}
+        draft={draft}
+        picks={pickRows}
+        teams={teams}
+        myTeamId={myTeam?.id ?? null}
+        isCommissioner={isCommissioner}
+        available={available}
+        openLot={(lot ?? null) as AuctionLot | null}
+        nominatorId={(nominator as string | null) ?? null}
+        budgets={budgets}
+        maxBid={Number(maxBid ?? 0)}
+        seasonLabel={String(league.season)}
+      />
+    );
+  }
+
+  const { data: queue } = myTeam
+    ? await supabase
+        .from("draft_queue")
+        .select("player_id, rank")
+        .eq("team_id", myTeam.id)
+        .order("rank")
+    : { data: [] };
 
   return (
     <DraftRoom
       leagueId={leagueId}
-      draft={draft as Draft}
-      picks={(picks ?? []) as DraftPick[]}
+      draft={draft}
+      picks={pickRows}
       teams={teams}
       myTeamId={myTeam?.id ?? null}
       isCommissioner={isCommissioner}
-      available={(pool ?? []) as DraftablePlayer[]}
+      available={available}
       queuedIds={((queue ?? []) as { player_id: string }[]).map(
         (q) => q.player_id,
       )}
