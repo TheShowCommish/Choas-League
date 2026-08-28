@@ -21,6 +21,7 @@ Built on Next.js and Supabase. Multi-league from the ground up.
 | `/l/[id]/my-team` | Set your weekly lineup, drop players, rename your team |
 | `/l/[id]/players` | Free agency, blind FAAB bidding, player research |
 | `/l/[id]/players/[playerId]` | Every stat a player has recorded, and what each was worth |
+| `/l/[id]/trades` | Propose, accept and withdraw trades |
 | `/l/[id]/matchups` | The week's games, and a full head-to-head breakdown |
 | `/l/[id]/standings` | The table |
 | `/l/[id]/transactions` | The full, filterable league audit trail |
@@ -163,13 +164,12 @@ set `receptions` to 1.5 with positions `['TE']`.
 **Tools → Recompute all weeks** to re-score the season. Nothing is
 recalculated behind your back.
 
-### Stats that are not tracked yet
+### Stats that are not tracked
 
-19 of the 174 stats need play-by-play aggregation, which is not wired up
-yet: red zone and deep targets, carries inside the 5, three-and-outs,
-and the split of return touchdowns into kick and punt. These are marked
-in the admin UI. Setting points on one will do nothing until the
-play-by-play job exists.
+173 of the 174 stats are populated. The exception is **rush yards over
+expected**, which comes from Next Gen Stats tracking data that is not
+published per week. It is flagged in the admin UI, so nobody switches it
+on and waits all season for a score that cannot come.
 
 ---
 
@@ -184,8 +184,9 @@ by the bidding team, which is what makes blind FAAB bidding actually
 blind rather than merely hidden by the UI.
 
 **Stats live in a jsonb map, not typed columns.** nflverse publishes a
-very wide and growing stat surface. A jsonb map means a new stat needs a
-catalog entry, not a migration.
+very wide and growing stat surface, and only the stats a player actually
+recorded are stored. A jsonb map means a new stat needs a catalog entry,
+not a migration.
 
 **Scoring is a join, not a formula.** `recompute_week_scores` matches
 every stat key in a player's line against the league's rule table and
@@ -198,9 +199,18 @@ on a single code path.
 ### Data sources
 
 - [nflverse](https://github.com/nflverse/nflverse-data) — players,
-  schedules, weekly box scores, team stats, snap counts, and Pro
-  Football Reference advanced charting. Free, no key, updated within
-  hours of a game.
+  schedules, weekly box scores, team stats, snap counts, Pro Football
+  Reference advanced charting, and full play-by-play. Free, no key,
+  updated within hours of a game.
+- **ESPN**'s public box scores, polled every five minutes during games
+  for live scoring. Narrower and less accurate than nflverse, so a live
+  stat line is always replaced by the official one later and never the
+  other way round.
+
+Situational stats — red zone targets, carries inside the five, deep
+attempts, three-and-outs — exist only as properties of individual plays,
+so they come from walking the season's play-by-play. It is 18MB gzipped
+and takes about four seconds to aggregate a week.
 
 ---
 

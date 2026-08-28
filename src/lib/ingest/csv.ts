@@ -59,7 +59,9 @@ export async function* streamCsv(
 ): AsyncGenerator<CsvRow> {
   const response = await fetch(url, {
     signal,
-    headers: { accept: "text/csv" },
+    // Ask for the bytes as-is: a .gz must not be transparently inflated
+    // by fetch, or the DecompressionStream below would double-inflate.
+    headers: { accept: "*/*" },
     // These files change a few times a week at most.
     cache: "no-store",
   });
@@ -70,9 +72,13 @@ export async function* streamCsv(
   }
   if (!response.body) throw new Error(`No response body for ${url}`);
 
-  const reader = response.body
-    .pipeThrough(new TextDecoderStream())
-    .getReader();
+  // The play-by-play file is 93MB as CSV and 18MB gzipped, so we ask for
+  // the .gz and inflate as we go.
+  const bytes = url.endsWith(".gz")
+    ? response.body.pipeThrough(new DecompressionStream("gzip"))
+    : response.body;
+
+  const reader = bytes.pipeThrough(new TextDecoderStream()).getReader();
 
   let buffer = "";
   let header: string[] | null = null;

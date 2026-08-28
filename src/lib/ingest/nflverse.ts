@@ -28,6 +28,14 @@ export const nflverseUrls = {
   /** Offensive/defensive snap counts, keyed by pfr_player_id. */
   snapCounts: (season: number) => `${BASE}/snap_counts/snap_counts_${season}.csv`,
 
+  /**
+   * Every play of a season. Gzipped: 18MB rather than 93MB, which is
+   * the difference between this fitting in a serverless function and
+   * not. streamCsv inflates it on the fly.
+   */
+  playByPlay: (season: number) =>
+    `${BASE}/pbp/play_by_play_${season}.csv.gz`,
+
   /** Pro Football Reference advanced charting, keyed by pfr_player_id. */
   advRush: (season: number) =>
     `${BASE}/pfr_advstats/advstats_week_rush_${season}.csv`,

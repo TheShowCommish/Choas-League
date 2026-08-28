@@ -13,6 +13,7 @@ import {
   mapTeamDefense,
   type StatMap,
 } from "./map-stats.ts";
+import { aggregatePlayByPlay } from "./pbp.ts";
 
 /**
  * The ingestion jobs.
@@ -325,6 +326,10 @@ export async function syncWeekStats(
       };
     }
 
+    // Play-by-play counters for team defenses, folded in once the D/ST
+    // rows themselves are built further down.
+    const pbpDefense = new Map<string, StatMap>();
+
     // The charting feeds are keyed by pfr_player_id, so translate.
     const pfrToGsis = await loadPfrMap(supabase);
 
@@ -333,6 +338,23 @@ export async function syncWeekStats(
     await mergeByPfr(nflverseUrls.advRec(season), mapAdvRec, "pfr_player_id");
     await mergeByPfr(nflverseUrls.advPass(season), mapAdvPass, "pfr_player_id");
     await mergeByPfr(nflverseUrls.advDef(season), mapAdvDef, "pfr_player_id");
+
+    // Situational stats -- red zone targets, deep attempts, three-and-outs
+    // -- exist only as properties of individual plays, so they come from
+    // walking the play-by-play. Team defense rows are keyed the same way,
+    // and are created here if the box score pass did not already make one.
+    const pbp = await aggregatePlayByPlay(season, week);
+    for (const [key, stats] of pbp) {
+      const [playerId, gameId] = key.split("|");
+      const games = byPlayer.get(playerId);
+
+      if (games?.has(gameId)) {
+        Object.assign(games.get(gameId)!, stats);
+      } else if (playerId.startsWith("DST_")) {
+        // D/ST lines are built later, so stash these for that pass.
+        pbpDefense.set(key, stats);
+      }
+    }
 
     async function mergeByPfr(
       url: string,
@@ -386,7 +408,12 @@ export async function syncWeekStats(
       }
     }
 
-    const defenseRows = await buildTeamDefenseRows(supabase, season, week);
+    const defenseRows = await buildTeamDefenseRows(
+      supabase,
+      season,
+      week,
+      pbpDefense,
+    );
     const all = [...statRows, ...defenseRows];
 
     const written = await upsertInBatches(
@@ -422,6 +449,7 @@ async function buildTeamDefenseRows(
   supabase: Admin,
   season: number,
   week: number | null,
+  pbpDefense: Map<string, StatMap>,
 ): Promise<Record<string, unknown>[]> {
   // team|game -> its own offensive output, so we can read the opponent's
   // row as "yards allowed".
@@ -486,11 +514,14 @@ async function buildTeamDefenseRows(
       team_abbr: team,
       opponent,
       source: "final",
-      stats: mapTeamDefense(row, {
-        points: pointsAllowed,
-        passYards: opponentOffense.passYards,
-        rushYards: opponentOffense.rushYards,
-      }),
+      stats: {
+        ...mapTeamDefense(row, {
+          points: pointsAllowed,
+          passYards: opponentOffense.passYards,
+          rushYards: opponentOffense.rushYards,
+        }),
+        ...(pbpDefense.get(`DST_${team}|${gameId}`) ?? {}),
+      },
       updated_at: now,
     });
   }

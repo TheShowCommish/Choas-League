@@ -19,10 +19,8 @@ export type StatAppliesTo = "player" | "team_defense";
 export type StatValueType = "count" | "flag" | "rate";
 
 /**
- * Where a stat comes from. Everything except "pbp" is ingested today;
- * "pbp" stats need play-by-play aggregation, which is not wired up yet,
- * so the admin UI flags them rather than letting a commissioner switch
- * on a stat that would silently never score.
+ * Where a stat comes from. All of these are ingested, except for the
+ * handful listed in UNAVAILABLE below, which no free feed carries.
  */
 export type StatSource =
   | "player" // nflverse stats_player_week
@@ -30,7 +28,7 @@ export type StatSource =
   | "pfr" // Pro Football Reference advanced weekly stats
   | "snaps" // nflverse snap counts
   | "derived" // computed from the above during ingestion
-  | "pbp"; // needs play-by-play; not ingested yet
+  | "pbp"; // aggregated from nflverse play-by-play
 
 export interface StatDefinition {
   key: string;
@@ -43,7 +41,11 @@ export interface StatDefinition {
   defaultPoints: number;
   scorable: boolean;
   source: StatSource;
-  /** False while nothing populates this stat, so the UI can say so. */
+  /**
+   * False when no feed we ingest carries this stat, so the admin UI can
+   * say so rather than letting a commissioner switch on a stat that
+   * would silently never score.
+   */
   tracked: boolean;
 }
 
@@ -90,6 +92,7 @@ const SOURCE_OVERRIDES: Record<string, StatSource> = Object.fromEntries([
     "yards_per_carry",
     "yards_per_reception",
     "yards_per_target",
+    "passer_rating",
     "pass_300_bonus",
     "pass_400_bonus",
     "pass_500_bonus",
@@ -122,18 +125,26 @@ const SOURCE_OVERRIDES: Record<string, StatSource> = Object.fromEntries([
     "rush_attempts_redzone",
     "rush_attempts_inside_5",
     "rush_stuffed",
-    "rush_yards_over_expected",
     "targets_redzone",
     "targets_endzone",
     "targets_deep",
-    "contested_catches",
     "def_stuffs",
-    "passer_rating",
     "dst_three_and_outs",
     "dst_fourth_down_stops",
     "dst_first_downs_allowed",
   ].map((k) => [k, "pbp" as StatSource]),
 ]);
+
+/**
+ * Stats in the catalog that nothing we ingest actually carries.
+ *
+ * Rush yards over expected comes from Next Gen Stats tracking data,
+ * which nflverse does not publish per week. It stays in the catalog
+ * because it is worth having if a source appears, but the admin UI
+ * marks it so nobody switches it on and waits all season for a score
+ * that cannot come.
+ */
+const UNAVAILABLE = new Set(["rush_yards_over_expected"]);
 
 function group(
   category: string,
@@ -155,7 +166,7 @@ function group(
       defaultPoints,
       scorable: valueType !== "rate",
       source,
-      tracked: source !== "pbp",
+      tracked: !UNAVAILABLE.has(key),
     };
   });
 }
@@ -397,5 +408,5 @@ export const STAT_BY_KEY: Record<string, StatDefinition> = Object.fromEntries(
 /** Stats a league can actually attach points to. */
 export const SCORABLE_STATS = STAT_CATALOG.filter((s) => s.scorable);
 
-/** Stats nothing populates yet, so the admin UI can say as much. */
+/** Stats no feed we ingest carries, so the admin UI can say as much. */
 export const UNTRACKED_STATS = STAT_CATALOG.filter((s) => !s.tracked);

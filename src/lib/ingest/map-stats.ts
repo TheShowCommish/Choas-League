@@ -35,6 +35,25 @@ function ratio(numerator: number, denominator: number): number {
   return denominator === 0 ? 0 : numerator / denominator;
 }
 
+/** The classic NFL passer rating. Each component clamps to 0..2.375. */
+function passerRating(
+  completions: number,
+  attempts: number,
+  yards: number,
+  touchdowns: number,
+  interceptions: number,
+): number {
+  if (attempts === 0) return 0;
+
+  const clamp = (value: number) => Math.max(0, Math.min(2.375, value));
+  const a = clamp((completions / attempts - 0.3) * 5);
+  const b = clamp((yards / attempts - 3) * 0.25);
+  const c = clamp((touchdowns / attempts) * 20);
+  const d = clamp(2.375 - (interceptions / attempts) * 25);
+
+  return ((a + b + c + d) / 6) * 100;
+}
+
 /**
  * One row of stats_player_week -> catalog keys.
  *
@@ -87,6 +106,13 @@ export function mapPlayerWeek(row: CsvRow): StatMap {
     pacr: n(row, "pacr"),
     completion_pct: ratio(completions, attempts) * 100,
     yards_per_attempt: ratio(passingYards, attempts),
+    passer_rating: passerRating(
+      completions,
+      attempts,
+      passingYards,
+      passingTds,
+      interceptions,
+    ),
 
     pass_300_bonus: flag(passingYards >= 300),
     pass_400_bonus: flag(passingYards >= 400),
