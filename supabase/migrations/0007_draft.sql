@@ -2,8 +2,9 @@
 -- 0007  Draft: snake and auction
 --
 -- The draft room is hidden until the commissioner flips `status` to
--- 'live'; the UI keys off that, and RLS keeps picks read-only to
--- everyone except the team on the clock.
+-- 'live'; the UI keys off that, and picks are made through an RPC that
+-- checks whose turn it is. As everywhere else, a D/ST is just a player
+-- with a 'DST_<abbr>' id.
 -- =====================================================================
 
 create table if not exists public.drafts (
@@ -55,7 +56,6 @@ create table if not exists public.draft_picks (
   round_pick    int  not null,
   team_id       uuid not null references public.teams(id) on delete cascade,
   player_id     text references public.nfl_players(id) on delete set null,
-  dst_team_abbr text references public.nfl_teams(abbr) on delete set null,
   is_autopick   boolean not null default false,
   bid_amount    int,
   picked_at     timestamptz,
@@ -69,8 +69,7 @@ create index if not exists draft_picks_team_idx  on public.draft_picks(team_id);
 create table if not exists public.auction_lots (
   id                uuid primary key default gen_random_uuid(),
   draft_id          uuid not null references public.drafts(id) on delete cascade,
-  player_id         text references public.nfl_players(id) on delete cascade,
-  dst_team_abbr     text references public.nfl_teams(abbr) on delete cascade,
+  player_id         text not null references public.nfl_players(id) on delete cascade,
   nominated_by      uuid not null references public.teams(id) on delete cascade,
   high_bid          int  not null default 1,
   high_bidder_id    uuid references public.teams(id) on delete set null,
@@ -95,14 +94,11 @@ create index if not exists auction_bids_lot_idx on public.auction_bids(lot_id, a
 
 -- A manager's private pre-draft ranking, also used to drive autopick.
 create table if not exists public.draft_queue (
-  id            uuid primary key default gen_random_uuid(),
-  team_id       uuid not null references public.teams(id) on delete cascade,
-  player_id     text references public.nfl_players(id) on delete cascade,
-  dst_team_abbr text references public.nfl_teams(abbr) on delete cascade,
-  rank          int  not null default 0,
-  check ((player_id is null) <> (dst_team_abbr is null))
+  id        uuid primary key default gen_random_uuid(),
+  team_id   uuid not null references public.teams(id) on delete cascade,
+  player_id text not null references public.nfl_players(id) on delete cascade,
+  rank      int  not null default 0,
+  unique (team_id, player_id)
 );
 
-create unique index if not exists draft_queue_player_unique
-  on public.draft_queue(team_id, player_id) where player_id is not null;
 create index if not exists draft_queue_team_idx on public.draft_queue(team_id, rank);

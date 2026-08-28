@@ -83,7 +83,6 @@ alter table public.nfl_players         enable row level security;
 alter table public.nfl_games           enable row level security;
 alter table public.nfl_byes            enable row level security;
 alter table public.player_game_stats   enable row level security;
-alter table public.team_game_stats     enable row level security;
 alter table public.ingest_runs         enable row level security;
 alter table public.stat_definitions    enable row level security;
 alter table public.league_scoring_rules enable row level security;
@@ -134,10 +133,6 @@ create policy nfl_byes_read on public.nfl_byes
 
 drop policy if exists pgs_read on public.player_game_stats;
 create policy pgs_read on public.player_game_stats
-  for select to authenticated using (true);
-
-drop policy if exists tgs_read on public.team_game_stats;
-create policy tgs_read on public.team_game_stats
   for select to authenticated using (true);
 
 drop policy if exists stat_definitions_read on public.stat_definitions;

@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "gen:stat-seed": "node scripts/generate-stat-seed.ts"
+    "gen:stat-seed": "node scripts/generate-stat-seed.ts",
+    "db:verify": "node scripts/verify-migrations.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",
@@ -18,6 +19,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",

@@ -42,38 +42,30 @@ create trigger lsr_touch before update on public.league_scoring_rules
   for each row execute function public.touch_updated_at();
 
 -- Materialised fantasy points. Recomputed whenever stats land or the
--- commissioner changes a scoring rule.
+-- commissioner changes a scoring rule. Team defenses appear here under
+-- their 'DST_<abbr>' pseudo-player id, same as anyone else.
 create table if not exists public.player_week_scores (
-  id         bigint generated always as identity primary key,
-  league_id  uuid not null references public.leagues(id) on delete cascade,
-  player_id  text references public.nfl_players(id) on delete cascade,
-  team_abbr  text references public.nfl_teams(abbr) on delete cascade,
-  season     int not null,
-  week       int not null,
-  points     numeric(10,2) not null default 0,
+  id          bigint generated always as identity primary key,
+  league_id   uuid not null references public.leagues(id) on delete cascade,
+  player_id   text not null references public.nfl_players(id) on delete cascade,
+  season      int not null,
+  week        int not null,
+  points      numeric(10,2) not null default 0,
   -- { stat_key: { value, points }, ... } so the UI can show the math
-  breakdown  jsonb not null default '{}'::jsonb,
-  is_final   boolean not null default false,
+  breakdown   jsonb not null default '{}'::jsonb,
+  is_final    boolean not null default false,
   computed_at timestamptz not null default now(),
-  -- exactly one of player_id / team_abbr is set
-  check ((player_id is null) <> (team_abbr is null))
+  unique (league_id, player_id, season, week)
 );
 
-create unique index if not exists pws_player_unique
-  on public.player_week_scores(league_id, player_id, season, week)
-  where player_id is not null;
-
-create unique index if not exists pws_team_unique
-  on public.player_week_scores(league_id, team_abbr, season, week)
-  where team_abbr is not null;
-
 create index if not exists pws_week_idx on public.player_week_scores(league_id, season, week);
+create index if not exists pws_player_idx on public.player_week_scores(league_id, player_id, season);
 
 -- Season totals, handy for the player research page ---------------------
 create or replace view public.player_season_points as
-  select league_id, player_id, team_abbr, season,
-         sum(points)                       as total_points,
-         count(*)                          as games,
-         round(avg(points), 2)             as avg_points
+  select league_id, player_id, season,
+         round(sum(points), 2)  as total_points,
+         count(*)               as games,
+         round(avg(points), 2)  as avg_points
   from public.player_week_scores
-  group by league_id, player_id, team_abbr, season;
+  group by league_id, player_id, season;

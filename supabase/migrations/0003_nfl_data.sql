@@ -71,6 +71,9 @@ create table if not exists public.nfl_byes (
 );
 
 -- Raw per-player, per-game stat lines ----------------------------------
+-- Team defenses live here too, as pseudo-players with id 'DST_<abbr>' and
+-- position 'DEF' (seeded in 0015). Modelling a D/ST as just another
+-- player keeps every roster, lineup, draft and waiver query single-path.
 create table if not exists public.player_game_stats (
   id          bigint generated always as identity primary key,
   player_id   text not null references public.nfl_players(id) on delete cascade,
@@ -91,24 +94,6 @@ create table if not exists public.player_game_stats (
 create index if not exists pgs_week_idx    on public.player_game_stats(season, week);
 create index if not exists pgs_player_idx  on public.player_game_stats(player_id, season, week);
 create index if not exists pgs_stats_gin   on public.player_game_stats using gin (stats);
-
--- Team defense / special teams stat lines -------------------------------
-create table if not exists public.team_game_stats (
-  id          bigint generated always as identity primary key,
-  team_abbr   text not null references public.nfl_teams(abbr) on delete cascade,
-  game_id     text not null references public.nfl_games(id) on delete cascade,
-  season      int  not null,
-  week        int  not null,
-  season_type text not null default 'REG',
-  opponent    text,
-  source      text not null default 'live' check (source in ('live','final')),
-  stats       jsonb not null default '{}'::jsonb,
-  updated_at  timestamptz not null default now(),
-  unique (team_abbr, game_id)
-);
-
-create index if not exists tgs_week_idx  on public.team_game_stats(season, week);
-create index if not exists tgs_stats_gin on public.team_game_stats using gin (stats);
 
 -- Bookkeeping for the ingestion jobs ------------------------------------
 create table if not exists public.ingest_runs (
