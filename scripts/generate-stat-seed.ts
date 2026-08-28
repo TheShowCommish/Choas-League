@@ -23,7 +23,8 @@ const q = (s: string) => `'${s.replace(/'/g, "''")}'`;
 
 const values = STAT_CATALOG.map((s, i) =>
   `  (${q(s.key)}, ${q(s.label)}, ${q(s.category)}, ${q(s.description)}, ` +
-  `${q(s.appliesTo)}, ${q(s.valueType)}, ${s.defaultPoints}, ${s.scorable}, ${(i + 1) * 10})`,
+  `${q(s.appliesTo)}, ${q(s.valueType)}, ${s.defaultPoints}, ${s.scorable}, ` +
+  `${q(s.source)}, ${s.tracked}, ${(i + 1) * 10})`,
 ).join(",\n");
 
 const sql = `-- =====================================================================
@@ -33,10 +34,13 @@ const sql = `-- ================================================================
 -- Source of truth:  src/lib/stats/catalog.ts
 --
 -- ${STAT_CATALOG.length} stats across ${new Set(STAT_CATALOG.map((s) => s.category)).size} categories.
+-- ${STAT_CATALOG.filter((s) => s.tracked).length} are populated by the
+-- ingestion jobs today; the rest need play-by-play aggregation.
 -- =====================================================================
 
 insert into public.stat_definitions
-  (key, label, category, description, applies_to, value_type, default_points, scorable, sort_order)
+  (key, label, category, description, applies_to, value_type, default_points,
+   scorable, source, tracked, sort_order)
 values
 ${values}
 on conflict (key) do update set
@@ -47,6 +51,8 @@ on conflict (key) do update set
   value_type     = excluded.value_type,
   default_points = excluded.default_points,
   scorable       = excluded.scorable,
+  source         = excluded.source,
+  tracked        = excluded.tracked,
   sort_order     = excluded.sort_order;
 
 -- Remove stats that have been dropped from the catalog.

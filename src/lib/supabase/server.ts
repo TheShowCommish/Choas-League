@@ -34,25 +34,6 @@ export async function createClient() {
   );
 }
 
-/**
- * Service-role client. Bypasses RLS entirely, so this must never be
- * imported into anything that reaches the browser -- it is only for the
- * ingestion jobs and cron routes.
- */
-export function createAdminClient() {
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!key) {
-    throw new Error(
-      "SUPABASE_SERVICE_ROLE_KEY is not set. Add it to .env.local (and to " +
-        "the Vercel project settings) -- the stat ingestion jobs need it.",
-    );
-  }
-
-  return createServerClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, key, {
-    cookies: { getAll: () => [], setAll: () => {} },
-  });
-}
-
 /** The signed-in user, or null. */
 export async function getUser() {
   const supabase = await createClient();

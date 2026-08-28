@@ -18,6 +18,20 @@
 export type StatAppliesTo = "player" | "team_defense";
 export type StatValueType = "count" | "flag" | "rate";
 
+/**
+ * Where a stat comes from. Everything except "pbp" is ingested today;
+ * "pbp" stats need play-by-play aggregation, which is not wired up yet,
+ * so the admin UI flags them rather than letting a commissioner switch
+ * on a stat that would silently never score.
+ */
+export type StatSource =
+  | "player" // nflverse stats_player_week
+  | "team" // nflverse stats_team_week + schedules
+  | "pfr" // Pro Football Reference advanced weekly stats
+  | "snaps" // nflverse snap counts
+  | "derived" // computed from the above during ingestion
+  | "pbp"; // needs play-by-play; not ingested yet
+
 export interface StatDefinition {
   key: string;
   label: string;
@@ -28,6 +42,9 @@ export interface StatDefinition {
   /** Seeded into every new league's scoring rules. 0 = stat is off by default. */
   defaultPoints: number;
   scorable: boolean;
+  source: StatSource;
+  /** False while nothing populates this stat, so the UI can say so. */
+  tracked: boolean;
 }
 
 type Row = [
@@ -38,21 +55,109 @@ type Row = [
   defaultPoints: number,
 ];
 
+/** Stats sourced from somewhere other than stats_player_week. */
+const SOURCE_OVERRIDES: Record<string, StatSource> = Object.fromEntries([
+  // Pro Football Reference advanced weekly charting.
+  ...[
+    "rush_yards_before_contact",
+    "rush_yards_after_contact",
+    "rush_broken_tackles",
+    "drops",
+    "qb_hurries",
+    "def_targets",
+    "def_completions_allowed",
+    "def_yards_allowed",
+  ].map((k) => [k, "pfr" as StatSource]),
+
+  // Snap count release.
+  ...["offensive_snaps", "defensive_snaps", "snap_share"].map(
+    (k) => [k, "snaps" as StatSource],
+  ),
+
+  // Computed during ingestion from the columns above.
+  ...[
+    "pass_incompletions",
+    "total_touches",
+    "total_yards_from_scrimmage",
+    "all_purpose_yards",
+    "total_tds",
+    "fumbles",
+    "fumbles_lost",
+    "tackles_combined",
+    "fg_made_total_yards",
+    "completion_pct",
+    "yards_per_attempt",
+    "yards_per_carry",
+    "yards_per_reception",
+    "yards_per_target",
+    "pass_300_bonus",
+    "pass_400_bonus",
+    "pass_500_bonus",
+    "pass_4td_bonus",
+    "pass_6td_bonus",
+    "pass_clean_game",
+    "rush_100_bonus",
+    "rush_150_bonus",
+    "rush_200_bonus",
+    "rush_3td_bonus",
+    "rec_100_bonus",
+    "rec_150_bonus",
+    "rec_200_bonus",
+    "rec_10_catch_bonus",
+  ].map((k) => [k, "derived" as StatSource]),
+
+  // Only obtainable by aggregating play-by-play.
+  ...[
+    // nflverse reports one combined special_teams_tds figure, so
+    // splitting it back into kick and punt returns needs play-by-play.
+    "kick_return_tds",
+    "punt_return_tds",
+    "pass_attempts_deep",
+    "pass_completions_deep",
+    "pass_attempts_redzone",
+    "pass_tds_redzone",
+    "pass_td_40_plus",
+    "rush_td_40_plus",
+    "rec_td_40_plus",
+    "rush_attempts_redzone",
+    "rush_attempts_inside_5",
+    "rush_stuffed",
+    "rush_yards_over_expected",
+    "targets_redzone",
+    "targets_endzone",
+    "targets_deep",
+    "contested_catches",
+    "def_stuffs",
+    "passer_rating",
+    "dst_three_and_outs",
+    "dst_fourth_down_stops",
+    "dst_first_downs_allowed",
+  ].map((k) => [k, "pbp" as StatSource]),
+]);
+
 function group(
   category: string,
   appliesTo: StatAppliesTo,
   rows: Row[],
 ): StatDefinition[] {
-  return rows.map(([key, label, description, valueType, defaultPoints]) => ({
-    key,
-    label,
-    category,
-    description,
-    appliesTo,
-    valueType,
-    defaultPoints,
-    scorable: valueType !== "rate",
-  }));
+  return rows.map(([key, label, description, valueType, defaultPoints]) => {
+    const source =
+      SOURCE_OVERRIDES[key] ??
+      (appliesTo === "team_defense" ? "team" : "player");
+
+    return {
+      key,
+      label,
+      category,
+      description,
+      appliesTo,
+      valueType,
+      defaultPoints,
+      scorable: valueType !== "rate",
+      source,
+      tracked: source !== "pbp",
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -193,6 +298,7 @@ const MISC_OFFENSE = group("Fumbles & Returns", "player", [
   ["punt_returns", "Punt Returns", "Punt returns.", "count", 0],
   ["punt_return_yards", "Punt Return Yards", "Yards on punt returns.", "count", 0],
   ["punt_return_tds", "Punt Return TDs", "Punt returns for a touchdown.", "count", 6],
+  ["special_teams_tds", "Special Teams TDs", "Kick or punt returns for a touchdown, either kind.", "count", 6],
   ["offensive_snaps", "Offensive Snaps", "Snaps played on offense.", "count", 0],
   ["snap_share", "Snap Share", "Share of the team's offensive snaps.", "rate", 0],
   ["total_touches", "Touches", "Carries plus receptions.", "count", 0],
@@ -290,3 +396,6 @@ export const STAT_BY_KEY: Record<string, StatDefinition> = Object.fromEntries(
 
 /** Stats a league can actually attach points to. */
 export const SCORABLE_STATS = STAT_CATALOG.filter((s) => s.scorable);
+
+/** Stats nothing populates yet, so the admin UI can say as much. */
+export const UNTRACKED_STATS = STAT_CATALOG.filter((s) => !s.tracked);

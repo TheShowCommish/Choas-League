@@ -1,0 +1,100 @@
+# Scheduled jobs for the league.
+#
+# GitHub Actions rather than Vercel Cron: the Vercel Hobby plan allows
+# only two cron jobs and only daily schedules, which cannot cover
+# in-game score updates or hourly waiver processing. Actions is free for
+# public repos and takes any cron expression.
+#
+# Repository secrets required (Settings > Secrets and variables > Actions):
+#   APP_URL      the deployed site, e.g. https://chaos-league.vercel.app
+#   CRON_SECRET  the same value set in the Vercel environment variables
+#
+# All times are UTC. US Eastern is UTC-4 during the NFL season.
+
+name: Scheduled jobs
+
+on:
+  schedule:
+    # Player list and schedule: every morning, 05:00 ET.
+    - cron: "0 9 * * *"
+    # Stats: through the night after each slate, so corrections land.
+    # Mon/Tue/Wed/Fri 04:00, 10:00 and 16:00 UTC.
+    - cron: "0 4,10,16 * * 1,2,3,5"
+    # Lineup locks: every 15 minutes on game days (Thu, Sun, Mon ET).
+    - cron: "*/15 16-23,0-6 * * 0,1,4,5"
+    # Waivers: hourly. Each league is only processed in its own
+    # configured hour, so this is a no-op most of the time.
+    - cron: "0 * * * *"
+
+  # Lets you run any single job by hand from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Which job to run
+        required: true
+        default: sync-stats
+        type: choice
+        options:
+          - sync-players
+          - sync-games
+          - sync-stats
+          - lock-lineups
+          - process-waivers
+      week:
+        description: 'Week for sync-stats ("all" backfills the season)'
+        required: false
+        type: string
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Work out which jobs this trigger should run
+        id: plan
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          MANUAL: ${{ inputs.job }}
+        run: |
+          if [ -n "$MANUAL" ]; then
+            echo "jobs=$MANUAL" >> "$GITHUB_OUTPUT"
+          else
+            case "$SCHEDULE" in
+              "0 9 * * *")            echo "jobs=sync-players sync-games" >> "$GITHUB_OUTPUT" ;;
+              "0 4,10,16 * * 1,2,3,5") echo "jobs=sync-stats" >> "$GITHUB_OUTPUT" ;;
+              "*/15 16-23,0-6 * * 0,1,4,5") echo "jobs=lock-lineups" >> "$GITHUB_OUTPUT" ;;
+              "0 * * * *")            echo "jobs=process-waivers" >> "$GITHUB_OUTPUT" ;;
+              *)                      echo "jobs=" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
+
+      - name: Call the endpoints
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          WEEK: ${{ inputs.week }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "APP_URL and CRON_SECRET repository secrets must be set." >&2
+            exit 1
+          fi
+
+          failed=0
+          for job in ${{ steps.plan.outputs.jobs }}; do
+            url="$APP_URL/api/cron/$job"
+            if [ "$job" = "sync-stats" ] && [ -n "$WEEK" ]; then
+              url="$url?week=$WEEK"
+            fi
+
+            echo "--- $job"
+            # --fail-with-body so a 500 both prints the reason and fails
+            # the step, rather than silently "succeeding".
+            if ! curl --fail-with-body --silent --show-error \
+                      --max-time 600 \
+                      --header "Authorization: Bearer $CRON_SECRET" \
+                      "$url"; then
+              failed=1
+            fi
+            echo
+          done
+
+          exit $failed

@@ -19,6 +19,12 @@ create table if not exists public.stat_definitions (
   default_points numeric(10,4) not null default 0,
   -- rate stats can't be scored on (they aren't additive across games)
   scorable      boolean not null default true,
+  -- which ingestion job populates this stat
+  source        text not null default 'player',
+  -- false while nothing populates it yet, so the admin UI can say so
+  -- rather than letting a commissioner switch on a stat that would
+  -- silently never score
+  tracked       boolean not null default true,
   sort_order    int not null default 0
 );
 
