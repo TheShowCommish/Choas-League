@@ -1,26 +1,130 @@
 @import "tailwindcss";
 
+/*
+ * Deliberately plain. The brief was "functional, not pretty", so this is
+ * a small set of shared component classes rather than a design system --
+ * it keeps the page markup short and consistent across ~10 screens.
+ * Everything is mobile-first; wide layouts are the md: exception.
+ */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0b0d10;
+  --surface: #14181d;
+  --surface-2: #1c2228;
+  --border: #2a323b;
+  --foreground: #e8eaed;
+  --muted: #9aa5b1;
+  --accent: #4f8ef7;
+  --positive: #3fb950;
+  --negative: #f85149;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
   --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+@layer components {
+  .card {
+    @apply rounded-lg border border-border bg-surface p-4;
+  }
+
+  .card-tight {
+    @apply rounded-lg border border-border bg-surface;
+  }
+
+  .btn {
+    /* min-h-11 keeps every control a comfortable tap target on phones. */
+    @apply inline-flex min-h-11 items-center justify-center gap-2 rounded-md
+      border border-border bg-surface-2 px-4 text-sm font-medium
+      text-foreground transition-colors hover:bg-border
+      disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply border-transparent bg-accent text-white hover:bg-accent/85;
+  }
+
+  .btn-danger {
+    @apply border-transparent bg-negative text-white hover:bg-negative/85;
+  }
+
+  .btn-sm {
+    @apply min-h-9 px-3 text-xs;
+  }
+
+  .input {
+    @apply min-h-11 w-full rounded-md border border-border bg-surface-2 px-3
+      text-base text-foreground placeholder:text-muted
+      focus:border-accent focus:outline-none;
+  }
+
+  .label {
+    @apply mb-1 block text-sm font-medium text-muted;
+  }
+
+  .muted {
+    @apply text-sm text-muted;
+  }
+
+  .pill {
+    @apply inline-flex items-center rounded-full border border-border
+      bg-surface-2 px-2 py-0.5 text-xs text-muted;
+  }
+
+  .h1 {
+    @apply text-xl font-semibold tracking-tight;
+  }
+
+  .h2 {
+    @apply text-base font-semibold tracking-tight;
+  }
+
+  /* Wide tables scroll inside their own container so the page body never
+     scrolls sideways on a phone. */
+  .table-scroll {
+    @apply -mx-4 overflow-x-auto px-4 md:mx-0 md:px-0;
+  }
+
+  .table {
+    @apply w-full min-w-full border-collapse text-sm;
+  }
+
+  .table th {
+    @apply whitespace-nowrap border-b border-border px-2 py-2 text-left
+      text-xs font-medium tracking-wide text-muted uppercase;
+  }
+
+  .table td {
+    @apply border-b border-border/60 px-2 py-2 align-middle;
+  }
+
+  .table tbody tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .error-box {
+    @apply rounded-md border border-negative/40 bg-negative/10 px-3 py-2
+      text-sm text-negative;
+  }
+
+  .ok-box {
+    @apply rounded-md border border-positive/40 bg-positive/10 px-3 py-2
+      text-sm text-positive;
+  }
 }
