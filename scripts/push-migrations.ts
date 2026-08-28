@@ -120,11 +120,68 @@ if (!connectionString) {
   process.exit(1);
 }
 
+/**
+ * Splits the connection string by hand rather than handing it to pg.
+ *
+ * pg parses with `new URL`, which requires the password to be
+ * percent-encoded. Database passwords are generated with punctuation in
+ * them -- a `/` or a `?` is enough to make the whole string unparseable,
+ * and the resulting "Invalid URL" says nothing about why. Since the
+ * password is the only field that can contain arbitrary characters, and
+ * it is delimited by the first `:` after the scheme and the last `@`,
+ * pulling it out literally is both simpler and more forgiving.
+ */
+function parseConnectionString(raw: string) {
+  const scheme = raw.indexOf("://");
+  const at = raw.lastIndexOf("@");
+  if (scheme === -1 || at === -1 || at < scheme) {
+    throw new Error(
+      "SUPABASE_DB_URL does not look like a connection string. It should " +
+        "start with postgresql:// and contain an @ before the host.",
+    );
+  }
+
+  const userinfo = raw.slice(scheme + 3, at);
+  const colon = userinfo.indexOf(":");
+  const user = colon === -1 ? userinfo : userinfo.slice(0, colon);
+  const password = colon === -1 ? "" : userinfo.slice(colon + 1);
+
+  // host[:port][/database][?params]
+  let rest = raw.slice(at + 1);
+  const query = rest.indexOf("?");
+  if (query !== -1) rest = rest.slice(0, query);
+
+  const slash = rest.indexOf("/");
+  const database = slash === -1 ? "postgres" : rest.slice(slash + 1) || "postgres";
+  const hostPort = slash === -1 ? rest : rest.slice(0, slash);
+
+  const portAt = hostPort.lastIndexOf(":");
+  const host = portAt === -1 ? hostPort : hostPort.slice(0, portAt);
+  const port = portAt === -1 ? 5432 : Number(hostPort.slice(portAt + 1));
+
+  if (!host) throw new Error("SUPABASE_DB_URL has no host in it.");
+
+  return { host, port, user, password, database };
+}
+
+const connection = parseConnectionString(connectionString);
+
+// The direct host has no A record, so on an IPv4-only network this
+// hangs rather than failing usefully. Worth saying up front.
+if (/^db\..*\.supabase\.co$/.test(connection.host)) {
+  console.log(
+    "Note: that is the direct connection, which is IPv6 only. If this " +
+      "hangs or times out, use the Session pooler string instead " +
+      "(Dashboard > Project Settings > Database > Connection string).\n",
+  );
+}
+
 const client = new pg.Client({
-  connectionString,
-  // Supabase terminates TLS at the pooler with a certificate chain node
-  // does not ship a root for.
+  ...connection,
+  // Supabase terminates TLS with a certificate chain node does not ship
+  // a root for.
   ssl: { rejectUnauthorized: false },
+  connectionTimeoutMillis: 15000,
 });
 
 await client.connect();
@@ -201,10 +258,14 @@ try {
        where table_schema = 'public' and table_name = 'leagues'`,
     );
     if (Number(rows[0].n) > 0) {
+      const latest = versionOf(files[files.length - 1]);
       console.error(
         "This database already has a schema but no migration history.\n\n" +
-          "  Record what is already applied first, then push the rest:\n" +
-          "    npm run db:push -- --baseline 0023\n",
+          "  Say what is already applied, then push the rest. If it is\n" +
+          "  fully up to date, that is the newest one:\n\n" +
+          `    npm run db:push -- --baseline ${latest}\n\n` +
+          "  If you are not sure how far it got, baseline the last one you\n" +
+          "  know landed; anything after it gets applied normally.\n",
       );
       process.exit(1);
     }
