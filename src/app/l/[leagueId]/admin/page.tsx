@@ -1,7 +1,7 @@
 import { requireCommissioner } from "@/lib/league";
 import { createClient } from "@/lib/supabase/server";
 import type { Draft, Profile, ScoringRule, StatDefinition } from "@/lib/types";
-import { AdminTabs } from "./tabs";
+import { AdminTabs, type IngestRun } from "./tabs";
 
 export default async function AdminPage({
   params,
@@ -30,6 +30,14 @@ export default async function AdminPage({
       supabase.from("drafts").select("*").eq("league_id", leagueId).maybeSingle(),
     ]);
 
+  // Ingestion health: whether the stat jobs are actually running, which
+  // is the first thing to check when scores look wrong.
+  const { data: runs } = await supabase
+    .from("ingest_runs")
+    .select("id, job, season, week, status, rows_written, message, started_at")
+    .order("started_at", { ascending: false })
+    .limit(10);
+
   const memberProfiles = (members ?? []).map((m) => {
     const profile = m.profiles as unknown as Pick<
       Profile,
@@ -55,6 +63,7 @@ export default async function AdminPage({
         rules={(rules ?? []) as ScoringRule[]}
         members={memberProfiles}
         draft={(draft ?? null) as Draft | null}
+        ingestRuns={(runs ?? []) as IngestRun[]}
       />
     </div>
   );

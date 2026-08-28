@@ -14,6 +14,17 @@ import { ScoringPanel } from "./scoring-panel";
 import { RosterPanel } from "./roster-panel";
 import { ToolsPanel } from "./tools-panel";
 
+export interface IngestRun {
+  id: number;
+  job: string;
+  season: number | null;
+  week: number | null;
+  status: "running" | "success" | "error";
+  rows_written: number;
+  message: string | null;
+  started_at: string;
+}
+
 export interface MemberRow {
   id: string;
   display_name: string;
@@ -38,6 +49,7 @@ export function AdminTabs({
   rules,
   members,
   draft,
+  ingestRuns,
 }: {
   league: League;
   teams: Team[];
@@ -46,6 +58,7 @@ export function AdminTabs({
   rules: ScoringRule[];
   members: MemberRow[];
   draft: Draft | null;
+  ingestRuns: IngestRun[];
 }) {
   const [tab, setTab] = useState<TabId>("scoring");
 
@@ -82,6 +95,7 @@ export function AdminTabs({
           teams={teams}
           members={members}
           draft={draft}
+          ingestRuns={ingestRuns}
         />
       )}
     </>

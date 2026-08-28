@@ -138,6 +138,8 @@ You can run any job by hand from the **Actions** tab → *Scheduled jobs*
 5. **Tools** → generate the schedule.
 6. **Tools** → pick snake or auction, generate the draft, then open the
    room on the night.
+7. When the regular season ends, **Tools** → generate the playoff
+   bracket, and advance it as each round goes final.
 
 ---
 
@@ -195,6 +197,10 @@ multiplies. There is no hard-coded notion of what a touchdown is worth.
 **A team defense is just a player** with the id `DST_KC` and position
 `DEF`. That keeps every roster, lineup, draft, waiver and scoring query
 on a single code path.
+
+**Playoff seeds are frozen** when the bracket is generated. Standings
+keep moving as consolation games finish, and a bracket that re-seeds
+itself underneath you is a good way to start an argument in December.
 
 ### Data sources
 

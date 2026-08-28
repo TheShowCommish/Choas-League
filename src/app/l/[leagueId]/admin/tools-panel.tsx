@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import type { Draft, League, Team } from "@/lib/types";
-import type { MemberRow } from "./tabs";
+import type { IngestRun, MemberRow } from "./tabs";
 import {
   advancePlayoffs,
   assignTeamOwner,
@@ -20,11 +20,13 @@ export function ToolsPanel({
   teams,
   members,
   draft,
+  ingestRuns,
 }: {
   league: League;
   teams: Team[];
   members: MemberRow[];
   draft: Draft | null;
+  ingestRuns: IngestRun[];
 }) {
   const [result, setResult] = useState<AdminResult>({});
   const [pending, startTransition] = useTransition();
@@ -276,6 +278,63 @@ export function ToolsPanel({
             </li>
           ))}
         </ul>
+      </section>
+
+      <section className="card space-y-3">
+        <h3 className="h2">Data feed</h3>
+        <p className="muted text-sm">
+          The last ten ingestion runs. If scores look wrong, this is the
+          first place to look: a failed stat sync means the numbers are
+          simply stale.
+        </p>
+
+        {ingestRuns.length === 0 ? (
+          <p className="muted text-sm">
+            Nothing has run yet. Load the data with{" "}
+            <code className="font-mono">npm run ingest -- all</code>, or
+            trigger a job from the repository&rsquo;s Actions tab.
+          </p>
+        ) : (
+          <ul className="divide-y divide-border/60">
+            {ingestRuns.map((run) => (
+              <li key={run.id} className="flex items-start gap-3 py-2 text-sm">
+                <span
+                  className={`w-16 shrink-0 text-xs font-medium ${
+                    run.status === "error"
+                      ? "text-negative"
+                      : run.status === "running"
+                        ? "text-muted"
+                        : "text-positive"
+                  }`}
+                >
+                  {run.status}
+                </span>
+
+                <div className="min-w-0 flex-1">
+                  <p>
+                    <span className="font-medium">{run.job}</span>
+                    {run.week != null && (
+                      <span className="muted"> week {run.week}</span>
+                    )}
+                    <span className="muted"> &middot; {run.rows_written} rows</span>
+                  </p>
+                  {run.message && (
+                    <p className="muted text-xs">{run.message}</p>
+                  )}
+                </div>
+
+                <time className="muted shrink-0 text-xs" dateTime={run.started_at}>
+                  {new Date(run.started_at).toLocaleString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </time>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </div>
   );
