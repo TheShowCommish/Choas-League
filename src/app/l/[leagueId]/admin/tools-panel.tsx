@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import type { Draft, League, Team } from "@/lib/types";
 import type { IngestRun, MemberRow } from "./tabs";
 import { InvitePanel } from "./invite-panel";
+import { DraftOrderEditor } from "./draft-order";
 import {
   advancePlayoffs,
   assignTeamOwner,
@@ -24,6 +25,7 @@ export function ToolsPanel({
   draft,
   ingestRuns,
   origin,
+  draftOrder,
 }: {
   league: League;
   teams: Team[];
@@ -31,6 +33,7 @@ export function ToolsPanel({
   draft: Draft | null;
   ingestRuns: IngestRun[];
   origin: string;
+  draftOrder: string[];
 }) {
   const [result, setResult] = useState<AdminResult>({});
   const [pending, startTransition] = useTransition();
@@ -231,7 +234,7 @@ export function ToolsPanel({
           </button>
           <p className="muted text-xs">
             This wipes any picks already made. Do it before draft night, not
-            during.
+            during. Untick the shuffle to keep the order set below.
           </p>
         </form>
 
@@ -272,6 +275,12 @@ export function ToolsPanel({
         leagueName={league.name}
         joinCode={league.join_code}
         freeTeams={teams.filter((t) => t.owner_id === null).length}
+      />
+
+      <DraftOrderEditor
+        leagueId={league.id}
+        teams={teams}
+        currentOrder={draftOrder}
       />
 
       <section className="card space-y-3">

@@ -80,27 +80,104 @@ export async function saveScoringRules(
   try {
     const supabase = await assertCommissioner(leagueId);
 
-    const changes: { stat_key: string; points: number }[] = [];
+    // Two field shapes: points__<stat> is the rule for everyone,
+    // pos__<stat>__<POSITION> overrides it for one position.
+    const changes: {
+      league_id: string;
+      stat_key: string;
+      points: number;
+      positions: string[];
+    }[] = [];
+    const removals: { stat_key: string; position: string }[] = [];
+
     for (const [key, value] of formData.entries()) {
-      if (!key.startsWith("points__")) continue;
-      const statKey = key.slice("points__".length);
-      const points = Number(value);
-      if (!Number.isFinite(points)) {
-        return { error: `"${value}" is not a number (${statKey}).` };
+      const raw = String(value).trim();
+
+      if (key.startsWith("points__")) {
+        const statKey = key.slice("points__".length);
+        const points = Number(raw);
+        if (!Number.isFinite(points)) {
+          return { error: `"${raw}" is not a number (${statKey}).` };
+        }
+        changes.push({
+          league_id: leagueId,
+          stat_key: statKey,
+          points,
+          positions: [],
+        });
+        continue;
       }
-      changes.push({ stat_key: statKey, points });
+
     }
 
-    if (changes.length === 0) return { ok: "Nothing to save." };
+    // The positional rules arrive as one JSON field holding the whole
+    // set, so a rule the commissioner deleted is identifiable by its
+    // absence -- a field-per-rule form cannot express a removal.
+    const overridesRaw = formData.get("position_overrides");
+    if (overridesRaw !== null) {
+      let parsed: { statKey: string; position: string; points: string }[];
+      try {
+        parsed = JSON.parse(String(overridesRaw));
+      } catch {
+        return { error: "The positional rules could not be read." };
+      }
 
-    const { error } = await supabase.from("league_scoring_rules").upsert(
-      changes.map((c) => ({
-        league_id: leagueId,
-        stat_key: c.stat_key,
-        points: c.points,
-      })),
-      { onConflict: "league_id,stat_key" },
-    );
+      const kept = new Set<string>();
+      for (const row of parsed) {
+        if (!row.statKey || !row.position) continue;
+
+        const points = Number(row.points);
+        if (!Number.isFinite(points)) {
+          return {
+            error: `"${row.points}" is not a number (${row.statKey}/${row.position}).`,
+          };
+        }
+
+        kept.add(`${row.statKey}__${row.position}`);
+        changes.push({
+          league_id: leagueId,
+          stat_key: row.statKey,
+          points,
+          positions: [row.position],
+        });
+      }
+
+      // Whatever the league had that is no longer in the list.
+      const { data: existing } = await supabase
+        .from("league_scoring_rules")
+        .select("stat_key, positions")
+        .eq("league_id", leagueId);
+
+      for (const rule of existing ?? []) {
+        const positions = (rule.positions ?? []) as string[];
+        if (positions.length === 0) continue;
+        for (const position of positions) {
+          if (!kept.has(`${rule.stat_key}__${position}`)) {
+            removals.push({ stat_key: rule.stat_key as string, position });
+          }
+        }
+      }
+    }
+
+    if (changes.length === 0 && removals.length === 0) {
+      return { ok: "Nothing to save." };
+    }
+
+    for (const removal of removals) {
+      const { error } = await supabase
+        .from("league_scoring_rules")
+        .delete()
+        .eq("league_id", leagueId)
+        .eq("stat_key", removal.stat_key)
+        .eq("positions", `{${removal.position}}`);
+      if (error) return { error: error.message };
+    }
+
+    const { error } = changes.length
+      ? await supabase
+          .from("league_scoring_rules")
+          .upsert(changes, { onConflict: "league_id,stat_key,positions" })
+      : { error: null };
 
     if (error) return { error: error.message };
 
@@ -115,7 +192,7 @@ export async function saveScoringRules(
     revalidatePath(`/l/${leagueId}`, "layout");
     return {
       ok:
-        `Saved ${changes.length} scoring rule${changes.length === 1 ? "" : "s"}.` +
+        `Saved ${changes.length + removals.length} scoring change${changes.length + removals.length === 1 ? "" : "s"}.` +
         (rescoreError
           ? ` Scores could not be updated automatically (${rescoreError.message}) -- use "Recompute all weeks".`
           : " Every week has been rescored."),
@@ -349,6 +426,24 @@ export async function advancePlayoffs(
         ? "That was the final. The season is complete."
         : `Next round created: ${data} matchup(s).`,
   };
+}
+
+/** Fix the draft order by hand. Rebuilds the board, so it is destructive. */
+export async function setDraftOrder(
+  leagueId: string,
+  teamIds: string[],
+): Promise<AdminResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_draft_order", {
+    p_league: leagueId,
+    p_team_ids: teamIds,
+  });
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/l/${leagueId}/admin`);
+  revalidatePath(`/l/${leagueId}/draft`);
+  return { ok: "Draft order saved. The board has been rebuilt." };
 }
 
 /** Grow or shrink the league. Only ever removes teams nobody manages. */

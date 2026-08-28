@@ -3,6 +3,7 @@
 import { useActionState, useMemo, useState } from "react";
 import type { ScoringRule, StatDefinition } from "@/lib/types";
 import { saveScoringRules, type AdminResult } from "./actions";
+import { PositionOverrides } from "./position-overrides";
 
 const empty: AdminResult = {};
 
@@ -26,8 +27,15 @@ export function ScoringPanel({
 }) {
   const [state, action, pending] = useActionState(saveScoringRules, empty);
 
+  // The base rule for a stat is the one that names no positions.
+  // Anything with positions is an override, edited further down.
   const pointsByKey = useMemo(
-    () => new Map(rules.map((r) => [r.stat_key, Number(r.points)])),
+    () =>
+      new Map(
+        rules
+          .filter((r) => r.positions.length === 0)
+          .map((r) => [r.stat_key, Number(r.points)]),
+      ),
     [rules],
   );
 
@@ -181,17 +189,19 @@ export function ScoringPanel({
       {state.error && <p className="error-box">{state.error}</p>}
       {state.ok && <p className="ok-box">{state.ok}</p>}
 
+      <PositionOverrides stats={stats} rules={rules} />
+
       {/* Sticky so the save button is reachable without scrolling back up
           through a long list of stats. */}
       <div className="sticky bottom-20 z-10 md:bottom-4">
         <button
           className="btn btn-primary w-full shadow-lg"
-          disabled={pending || dirtyKeys.length === 0}
+          disabled={pending}
         >
           {pending
             ? "Saving..."
             : dirtyKeys.length === 0
-              ? "No changes"
+              ? "Save scoring"
               : `Save ${dirtyKeys.length} change${dirtyKeys.length === 1 ? "" : "s"}`}
         </button>
       </div>

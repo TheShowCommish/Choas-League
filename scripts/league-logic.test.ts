@@ -273,7 +273,7 @@ describe("scoring engine", () => {
     assert.equal(Number(row.points), 28);
   });
 
-  test("position-restricted rules only apply to that position", async () => {
+  test("a position rule overrides the base rule for that position only", async () => {
     const f = await league("positional");
     const wr = await player("POS_WR", "Positional WR", "WR");
     const te = await player("POS_TE", "Positional TE", "TE");
@@ -281,12 +281,13 @@ describe("scoring engine", () => {
     await stats(wr, 1, { receptions: 5 });
     await stats(te, 1, { receptions: 5 });
 
-    // TE premium: receptions worth 1.5 for tight ends only.
+    // Receptions are worth 1 to everyone by default. A TE premium adds a
+    // second rule rather than replacing the first, so the WR is untouched.
     await db.q(
       `insert into public.league_scoring_rules (league_id, stat_key, points, positions)
        values ($1, 'receptions', 1.5, array['TE'])
-       on conflict (league_id, stat_key)
-       do update set points = 1.5, positions = array['TE']`,
+       on conflict (league_id, stat_key, positions)
+       do update set points = 1.5`,
       [f.leagueId],
     );
     await db.q("select public.recompute_week_scores($1, $2, $3)", [f.leagueId, SEASON, 1]);
@@ -295,13 +296,67 @@ describe("scoring engine", () => {
       "select points from public.player_week_scores where league_id = $1 and player_id = $2",
       [f.leagueId, te],
     );
-    assert.equal(Number(teRow.points), 7.5);
+    assert.equal(Number(teRow.points), 7.5, "TE scores at the premium");
 
-    const wrRows = await db.q<{ points: string }>(
+    const wrRow = await db.one<{ points: string }>(
       "select points from public.player_week_scores where league_id = $1 and player_id = $2",
       [f.leagueId, wr],
     );
-    assert.equal(wrRows.length, 0, "the WR no longer matches any non-zero rule");
+    assert.equal(Number(wrRow.points), 5, "WR still scores at the base rate");
+  });
+
+  test("the same stat can be worth wildly different amounts by position", async () => {
+    const f = await league("tackle-chaos");
+    const qb = await player("CHAOS_QB", "Chaos QB", "QB");
+    const wr = await player("CHAOS_WR", "Chaos WR", "WR");
+
+    await stats(qb, 1, { tackles_combined: 1 });
+    await stats(wr, 1, { tackles_combined: 1 });
+
+    // A quarterback making a tackle is worth 50; a receiver's is worth 5.
+    await db.q(
+      `insert into public.league_scoring_rules (league_id, stat_key, points, positions)
+       values ($1, 'tackles_combined', 50, array['QB']),
+              ($1, 'tackles_combined', 5,  array['WR'])
+       on conflict (league_id, stat_key, positions) do update
+         set points = excluded.points`,
+      [f.leagueId],
+    );
+    await db.q("select public.recompute_week_scores($1, $2, $3)", [f.leagueId, SEASON, 1]);
+
+    const qbRow = await db.one<{ points: string }>(
+      "select points from public.player_week_scores where league_id = $1 and player_id = $2",
+      [f.leagueId, qb],
+    );
+    const wrRow = await db.one<{ points: string }>(
+      "select points from public.player_week_scores where league_id = $1 and player_id = $2",
+      [f.leagueId, wr],
+    );
+
+    assert.equal(Number(qbRow.points), 50);
+    assert.equal(Number(wrRow.points), 5);
+  });
+
+  test("a stat is counted once, not once per matching rule", async () => {
+    const f = await league("no-double-count");
+    const te = await player("SINGLE_TE", "Single TE", "TE");
+    await stats(te, 1, { receptions: 3 });
+
+    // Base 1, plus a TE rule at 1.5. Summing both would give 7.5;
+    // picking the most specific gives 4.5.
+    await db.q(
+      `insert into public.league_scoring_rules (league_id, stat_key, points, positions)
+       values ($1, 'receptions', 1.5, array['TE'])
+       on conflict (league_id, stat_key, positions) do update set points = 1.5`,
+      [f.leagueId],
+    );
+    await db.q("select public.recompute_week_scores($1, $2, $3)", [f.leagueId, SEASON, 1]);
+
+    const row = await db.one<{ points: string }>(
+      "select points from public.player_week_scores where league_id = $1 and player_id = $2",
+      [f.leagueId, te],
+    );
+    assert.equal(Number(row.points), 4.5);
   });
 
   test("team defenses score through the same path as players", async () => {
@@ -420,6 +475,74 @@ describe("matchups and standings", () => {
 });
 
 // ---------------------------------------------------------------------------
+
+describe("draft order", () => {
+  test("a hand-set order is kept, and the board is rebuilt from it", async () => {
+    const f = await league("draft-order");
+    await db.actAs(f.commish);
+
+    const reversed = [...f.teamIds].reverse();
+    await db.q("select public.set_draft_order($1, $2::uuid[])", [
+      f.leagueId,
+      reversed,
+    ]);
+
+    const rows = await db.q<{ team_id: string; slot: number }>(
+      "select team_id, slot from public.draft_order_for($1)",
+      [f.leagueId],
+    );
+    assert.deepEqual(
+      rows.map((r) => r.team_id),
+      reversed,
+    );
+
+    // Setting an order invalidates any board built from the old one.
+    const picks = await db.q(
+      `select 1 from public.draft_picks p
+       join public.drafts d on d.id = p.draft_id
+       where d.league_id = $1`,
+      [f.leagueId],
+    );
+    assert.equal(picks.length, 0);
+  });
+
+  test("an order has to name every team, exactly once", async () => {
+    const f = await league("draft-order-bad");
+    await db.actAs(f.commish);
+
+    await assert.rejects(
+      () =>
+        db.q("select public.set_draft_order($1, $2::uuid[])", [
+          f.leagueId,
+          [f.teamIds[0], f.teamIds[0], f.teamIds[1], f.teamIds[2]],
+        ]),
+      /twice/,
+    );
+
+    await assert.rejects(
+      () =>
+        db.q("select public.set_draft_order($1, $2::uuid[])", [
+          f.leagueId,
+          [f.teamIds[0]],
+        ]),
+      /lists 1 teams but the league has 4/,
+    );
+  });
+
+  test("only the commissioner can set it", async () => {
+    const f = await league("draft-order-rls");
+    await db.actAs(f.managers[0]);
+
+    await assert.rejects(
+      () =>
+        db.q("select public.set_draft_order($1, $2::uuid[])", [
+          f.leagueId,
+          f.teamIds,
+        ]),
+      /commissioner/,
+    );
+  });
+});
 
 describe("position limits", () => {
   test("a limit caps the whole roster, not just the starters", async () => {

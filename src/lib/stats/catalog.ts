@@ -111,6 +111,16 @@ const SOURCE_OVERRIDES: Record<string, StatSource> = Object.fromEntries([
 
   // Only obtainable by aggregating play-by-play.
   ...[
+    // Punting: the weekly player release carries no punting at all, so
+    // every one of these is counted off individual punt plays.
+    "punts",
+    "punt_yards",
+    "punt_inside_20",
+    "punt_touchbacks",
+    "punts_blocked",
+    "punt_50_plus",
+    "punt_fair_catches",
+
     // nflverse reports one combined special_teams_tds figure, so
     // splitting it back into kick and punt returns needs play-by-play.
     "kick_return_tds",
@@ -296,6 +306,23 @@ const KICKING = group("Kicking", "player", [
 ]);
 
 // ---------------------------------------------------------------------------
+// Punting
+//
+// nflverse's weekly player file has no punting in it whatsoever, so a
+// punter scores nothing anywhere else. These all come off individual
+// punt plays in the play-by-play, which is why the group exists at all.
+// ---------------------------------------------------------------------------
+const PUNTING = group("Punting", "player", [
+  ["punts", "Punts", "Punts attempted.", "count", 0],
+  ["punt_yards", "Punt Yards", "Gross punting yards.", "count", 0],
+  ["punt_inside_20", "Punts Inside the 20", "Punts downed inside the opponent 20.", "count", 2],
+  ["punt_50_plus", "Punts 50+ Yards", "Punts travelling 50 or more yards.", "count", 1],
+  ["punt_touchbacks", "Punt Touchbacks", "Punts that reached the end zone.", "count", -1],
+  ["punt_fair_catches", "Fair Catches Forced", "Punts fair caught by the returner.", "count", 0],
+  ["punts_blocked", "Punts Blocked", "Punts blocked by the opposition.", "count", -3],
+]);
+
+// ---------------------------------------------------------------------------
 // Fumbles & returns (apply to every offensive position)
 // ---------------------------------------------------------------------------
 const MISC_OFFENSE = group("Fumbles & Returns", "player", [
@@ -392,6 +419,7 @@ export const STAT_CATALOG: StatDefinition[] = [
   ...RUSHING,
   ...RECEIVING,
   ...KICKING,
+  ...PUNTING,
   ...MISC_OFFENSE,
   ...DEFENSE_IDP,
   ...TEAM_DEFENSE,

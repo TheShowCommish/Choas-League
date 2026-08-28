@@ -52,6 +52,7 @@ export function AdminTabs({
   ingestRuns,
   origin,
   positionLimits,
+  draftOrder,
 }: {
   league: League;
   teams: Team[];
@@ -64,6 +65,8 @@ export function AdminTabs({
   /** Absolute site origin, for building the invite link. */
   origin: string;
   positionLimits: Record<string, number>;
+  /** Team ids in draft order; empty until one is set. */
+  draftOrder: string[];
 }) {
   const [tab, setTab] = useState<TabId>("scoring");
 
@@ -106,6 +109,7 @@ export function AdminTabs({
           draft={draft}
           ingestRuns={ingestRuns}
           origin={origin}
+          draftOrder={draftOrder}
         />
       )}
     </>

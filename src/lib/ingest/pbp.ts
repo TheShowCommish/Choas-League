@@ -22,6 +22,7 @@ const REDZONE_YARDLINE = 20;
 const GOAL_LINE_YARDLINE = 5;
 const DEEP_AIR_YARDS = 20;
 const LONG_TD_YARDS = 40;
+const LONG_PUNT_YARDS = 50;
 
 /** Adds one to a counter, creating the row and key as needed. */
 function bump(totals: PbpTotals, key: string, stat: string, by = 1) {
@@ -112,6 +113,28 @@ export async function aggregatePlayByPlay(
       if (n(play, "rush_touchdown") === 1 && yardsGained >= LONG_TD_YARDS) {
         bump(totals, key, "rush_td_40_plus");
       }
+    }
+
+    // --- Punter -------------------------------------------------------
+    // The only place punting exists: the weekly player release has none.
+    const punter = s(play, "punter_player_id");
+    if (punter && s(play, "play_type") === "punt") {
+      const key = `${punter}|${gameId}`;
+      const distance = n(play, "punt_distance");
+
+      bump(totals, key, "punts");
+      bump(totals, key, "punt_yards", distance);
+      if (distance >= LONG_PUNT_YARDS) bump(totals, key, "punt_50_plus");
+      if (n(play, "punt_inside_twenty") === 1) {
+        bump(totals, key, "punt_inside_20");
+      }
+      if (n(play, "punt_in_endzone") === 1 || n(play, "touchback") === 1) {
+        bump(totals, key, "punt_touchbacks");
+      }
+      if (n(play, "punt_fair_catch") === 1) {
+        bump(totals, key, "punt_fair_catches");
+      }
+      if (n(play, "punt_blocked") === 1) bump(totals, key, "punts_blocked");
     }
 
     // --- Returners ----------------------------------------------------

@@ -46,6 +46,14 @@ export default async function AdminPage({
     .select("position, max_count")
     .eq("league_id", leagueId);
 
+  const { data: orderRows } = await supabase.rpc("draft_order_for", {
+    p_league: leagueId,
+  });
+
+  const draftOrder = (orderRows ?? []).map(
+    (row: { team_id: string }) => row.team_id,
+  );
+
   const positionLimits = Object.fromEntries(
     (limits ?? []).map((l) => [l.position as string, l.max_count as number]),
   );
@@ -86,6 +94,7 @@ export default async function AdminPage({
         ingestRuns={(runs ?? []) as IngestRun[]}
         origin={origin}
         positionLimits={positionLimits}
+        draftOrder={draftOrder}
       />
     </div>
   );
