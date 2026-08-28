@@ -428,6 +428,52 @@ export async function advancePlayoffs(
   };
 }
 
+/** Replace the playoff round configuration in one go. */
+export async function savePlayoffRounds(
+  leagueId: string,
+  rounds: {
+    bracket: "winners" | "losers";
+    round_index: number;
+    name: string;
+    weeks: number;
+  }[],
+): Promise<AdminResult> {
+  try {
+    const supabase = await assertCommissioner(leagueId);
+
+    // Replace rather than upsert: a round the commissioner removed has
+    // to disappear, and an upsert cannot express that.
+    const { error: clearError } = await supabase
+      .from("league_playoff_rounds")
+      .delete()
+      .eq("league_id", leagueId);
+    if (clearError) return { error: clearError.message };
+
+    if (rounds.length > 0) {
+      const { error } = await supabase.from("league_playoff_rounds").insert(
+        rounds.map((r) => ({
+          league_id: leagueId,
+          bracket: r.bracket,
+          round_index: r.round_index,
+          name: r.name.trim(),
+          weeks: r.weeks,
+        })),
+      );
+      if (error) return { error: error.message };
+    }
+
+    revalidatePath(`/l/${leagueId}`, "layout");
+    return {
+      ok:
+        rounds.length === 0
+          ? "Playoff rounds cleared; the bracket will be worked out automatically."
+          : `Saved ${rounds.length} playoff round${rounds.length === 1 ? "" : "s"}.`,
+    };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+}
+
 /** Fix the draft order by hand. Rebuilds the board, so it is destructive. */
 export async function setDraftOrder(
   leagueId: string,

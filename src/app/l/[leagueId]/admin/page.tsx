@@ -3,6 +3,7 @@ import { requireCommissioner } from "@/lib/league";
 import { createClient } from "@/lib/supabase/server";
 import type { Draft, Profile, ScoringRule, StatDefinition } from "@/lib/types";
 import { AdminTabs, type IngestRun } from "./tabs";
+import type { PlayoffRound } from "./playoff-rounds";
 
 export default async function AdminPage({
   params,
@@ -45,6 +46,12 @@ export default async function AdminPage({
     .from("league_position_limits")
     .select("position, max_count")
     .eq("league_id", leagueId);
+
+  const { data: playoffRounds } = await supabase
+    .from("league_playoff_rounds")
+    .select("bracket, round_index, name, weeks")
+    .eq("league_id", leagueId)
+    .order("round_index");
 
   const { data: orderRows } = await supabase.rpc("draft_order_for", {
     p_league: leagueId,
@@ -95,6 +102,7 @@ export default async function AdminPage({
         origin={origin}
         positionLimits={positionLimits}
         draftOrder={draftOrder}
+        playoffRounds={(playoffRounds ?? []) as PlayoffRound[]}
       />
     </div>
   );

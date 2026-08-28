@@ -8,7 +8,12 @@
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { createTestDb, type TestDb } from "./lib/test-db.ts";
-import { SEASON, buildLeague, type Fixture } from "./lib/fixtures.ts";
+import {
+  SEASON,
+  buildLeague,
+  makePlayer,
+  type Fixture,
+} from "./lib/fixtures.ts";
 
 let db: TestDb;
 
@@ -84,6 +89,188 @@ async function seedRecords(f: Fixture, teamIds: string[]) {
     }
   }
 }
+
+describe("custom playoff shapes", () => {
+  /** A round that runs for `weeks` weeks. */
+  async function configureRounds(
+    leagueId: string,
+    bracket: "winners" | "losers",
+    weeks: number[],
+  ) {
+    for (let i = 0; i < weeks.length; i++) {
+      await db.q(
+        `insert into public.league_playoff_rounds
+           (league_id, bracket, round_index, weeks)
+         values ($1, $2, $3, $4)
+         on conflict (league_id, bracket, round_index)
+         do update set weeks = excluded.weeks`,
+        [leagueId, bracket, i + 1, weeks[i]],
+      );
+    }
+  }
+
+  test("a two-week round is laid out as one matchup spanning both", async () => {
+    const f = await buildLeague(db, "playoffs-twoweek");
+    await db.q(
+      "update public.leagues set playoff_teams = 4, playoff_start_week = 15 where id = $1",
+      [f.leagueId],
+    );
+    // Semi-final over two weeks, final over one.
+    await configureRounds(f.leagueId, "winners", [2, 1]);
+    await seedRecords(f, f.teamIds);
+    await db.q("select public.generate_playoffs($1)", [f.leagueId]);
+
+    const games = await db.q<{ week: number; week_count: number }>(
+      `select week, week_count from public.matchups
+       where league_id = $1 and is_playoff`,
+      [f.leagueId],
+    );
+
+    assert.equal(games.length, 2, "four teams, two semi-finals");
+    assert.ok(
+      games.every((g) => g.week === 15 && g.week_count === 2),
+      "both start in week 15 and run for two",
+    );
+  });
+
+  test("a two-week matchup scores the sum of both weeks", async () => {
+    const f = await buildLeague(db, "playoffs-twoweek-score");
+    await db.q(
+      "update public.leagues set playoff_teams = 4, playoff_start_week = 15, current_week = 15 where id = $1",
+      [f.leagueId],
+    );
+    await configureRounds(f.leagueId, "winners", [2, 1]);
+    await seedRecords(f, f.teamIds);
+    await db.q("select public.generate_playoffs($1)", [f.leagueId]);
+
+    const game = await db.one<{
+      id: string;
+      home_team_id: string;
+      week: number;
+    }>(
+      `select id, home_team_id, week from public.matchups
+       where league_id = $1 and is_playoff and away_team_id is not null
+       limit 1`,
+      [f.leagueId],
+    );
+
+    // A starter scoring in each of the two weeks.
+    const pid = await makePlayer(db, "PO_TWO_WK", "Two Week Man", "QB");
+    await db.asSuperuser(async () => {
+      await db.q(
+        `insert into public.roster_players (league_id, team_id, player_id)
+         values ($1, $2, $3)`,
+        [f.leagueId, game.home_team_id, pid],
+      );
+      for (const [week, points] of [
+        [15, 20],
+        [16, 12],
+      ]) {
+        await db.q(
+          `insert into public.lineup_entries
+             (league_id, team_id, season, week, player_id, slot_key)
+           values ($1, $2, $3, $4, $5, 'QB')`,
+          [f.leagueId, game.home_team_id, SEASON, week, pid],
+        );
+        await db.q(
+          `insert into public.player_week_scores
+             (league_id, player_id, season, week, points)
+           values ($1, $2, $3, $4, $5)`,
+          [f.leagueId, pid, SEASON, week, points],
+        );
+      }
+    });
+
+    await db.actAs(f.commish);
+    // Rescoring either week must produce the two-week total.
+    await db.q("select public.recompute_matchup_scores($1, $2, $3)", [
+      f.leagueId,
+      SEASON,
+      16,
+    ]);
+
+    const scored = await db.one<{ home_score: string }>(
+      "select home_score from public.matchups where id = $1",
+      [game.id],
+    );
+    assert.equal(Number(scored.home_score), 32, "20 in week 15 plus 12 in 16");
+  });
+
+  test("the final starts after a two-week semi, not the week after it began", async () => {
+    const f = await buildLeague(db, "playoffs-offset");
+    await db.q(
+      "update public.leagues set playoff_teams = 4, playoff_start_week = 15 where id = $1",
+      [f.leagueId],
+    );
+    await configureRounds(f.leagueId, "winners", [2, 1]);
+    await seedRecords(f, f.teamIds);
+    await db.q("select public.generate_playoffs($1)", [f.leagueId]);
+
+    await db.q(
+      `update public.matchups set status = 'final', home_score = 100, away_score = 50
+       where league_id = $1 and is_playoff`,
+      [f.leagueId],
+    );
+    await db.q("select public.advance_playoffs($1, $2)", [f.leagueId, 15]);
+
+    const final = await db.one<{ week: number; week_count: number }>(
+      `select week, week_count from public.matchups
+       where league_id = $1 and is_playoff and week > 16`,
+      [f.leagueId],
+    );
+    assert.equal(final.week, 17, "the semi occupied 15 and 16");
+    assert.equal(final.week_count, 1);
+  });
+
+  test("losers drop into a consolation bracket when one is configured", async () => {
+    const f = await buildLeague(db, "playoffs-losers");
+    await db.q(
+      "update public.leagues set playoff_teams = 4, playoff_start_week = 15 where id = $1",
+      [f.leagueId],
+    );
+    await configureRounds(f.leagueId, "winners", [1, 1]);
+    await configureRounds(f.leagueId, "losers", [1]);
+    await seedRecords(f, f.teamIds);
+    await db.q("select public.generate_playoffs($1)", [f.leagueId]);
+
+    await db.q(
+      `update public.matchups set status = 'final', home_score = 100, away_score = 50
+       where league_id = $1 and is_playoff`,
+      [f.leagueId],
+    );
+    await db.q("select public.advance_playoffs($1, $2)", [f.leagueId, 15]);
+
+    const losers = await db.q<{ playoff_round: string }>(
+      `select playoff_round from public.matchups
+       where league_id = $1 and bracket = 'losers'`,
+      [f.leagueId],
+    );
+    assert.equal(losers.length, 1, "the two beaten semi-finalists meet");
+    assert.equal(losers[0].playoff_round, "Consolation");
+  });
+
+  test("without a losers bracket configured, nothing extra is created", async () => {
+    const f = await buildLeague(db, "playoffs-no-losers");
+    await db.q(
+      "update public.leagues set playoff_teams = 4, playoff_start_week = 15 where id = $1",
+      [f.leagueId],
+    );
+    await seedRecords(f, f.teamIds);
+    await db.q("select public.generate_playoffs($1)", [f.leagueId]);
+    await db.q(
+      `update public.matchups set status = 'final', home_score = 100, away_score = 50
+       where league_id = $1 and is_playoff`,
+      [f.leagueId],
+    );
+    await db.q("select public.advance_playoffs($1, $2)", [f.leagueId, 15]);
+
+    const losers = await db.q(
+      "select 1 from public.matchups where league_id = $1 and bracket = 'losers'",
+      [f.leagueId],
+    );
+    assert.equal(losers.length, 0);
+  });
+});
 
 describe("playoffs", () => {
   test("six teams give the top two a bye and pair 3v6, 4v5", async () => {

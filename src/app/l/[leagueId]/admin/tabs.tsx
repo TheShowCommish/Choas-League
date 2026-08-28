@@ -13,6 +13,7 @@ import { SettingsPanel } from "./settings-panel";
 import { ScoringPanel } from "./scoring-panel";
 import { RosterPanel } from "./roster-panel";
 import { ToolsPanel } from "./tools-panel";
+import { PlayoffRounds, type PlayoffRound } from "./playoff-rounds";
 
 export interface IngestRun {
   id: number;
@@ -53,6 +54,7 @@ export function AdminTabs({
   origin,
   positionLimits,
   draftOrder,
+  playoffRounds,
 }: {
   league: League;
   teams: Team[];
@@ -67,6 +69,7 @@ export function AdminTabs({
   positionLimits: Record<string, number>;
   /** Team ids in draft order; empty until one is set. */
   draftOrder: string[];
+  playoffRounds: PlayoffRound[];
 }) {
   const [tab, setTab] = useState<TabId>("scoring");
 
@@ -100,7 +103,14 @@ export function AdminTabs({
           positionLimits={positionLimits}
         />
       )}
-      {tab === "settings" && <SettingsPanel league={league} />}
+      {tab === "settings" && <>
+          <SettingsPanel league={league} />
+          <PlayoffRounds
+            leagueId={league.id}
+            startWeek={league.playoff_start_week}
+            rounds={playoffRounds}
+          />
+        </>}
       {tab === "tools" && (
         <ToolsPanel
           league={league}
