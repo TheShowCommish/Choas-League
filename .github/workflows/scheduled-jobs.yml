@@ -22,6 +22,9 @@ on:
     - cron: "0 4,10,16 * * 1,2,3,5"
     # Lineup locks: every 15 minutes on game days (Thu, Sun, Mon ET).
     - cron: "*/15 16-23,0-6 * * 0,1,4,5"
+    # Live scoring: every 5 minutes through the game windows. Thu and
+    # Mon night, and all day Sunday. A no-op when nothing is in progress.
+    - cron: "*/5 17-23,0-6 * * 0,1,5"
     # Waivers: hourly. Each league is only processed in its own
     # configured hour, so this is a no-op most of the time.
     - cron: "0 * * * *"
@@ -38,6 +41,7 @@ on:
           - sync-players
           - sync-games
           - sync-stats
+          - live-scores
           - lock-lineups
           - process-waivers
       week:
@@ -62,6 +66,7 @@ jobs:
               "0 9 * * *")            echo "jobs=sync-players sync-games" >> "$GITHUB_OUTPUT" ;;
               "0 4,10,16 * * 1,2,3,5") echo "jobs=sync-stats" >> "$GITHUB_OUTPUT" ;;
               "*/15 16-23,0-6 * * 0,1,4,5") echo "jobs=lock-lineups" >> "$GITHUB_OUTPUT" ;;
+              "*/5 17-23,0-6 * * 0,1,5") echo "jobs=live-scores" >> "$GITHUB_OUTPUT" ;;
               "0 * * * *")            echo "jobs=process-waivers" >> "$GITHUB_OUTPUT" ;;
               *)                      echo "jobs=" >> "$GITHUB_OUTPUT" ;;
             esac

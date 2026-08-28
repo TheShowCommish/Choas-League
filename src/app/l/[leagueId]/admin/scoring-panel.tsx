@@ -71,6 +71,9 @@ export function ScoringPanel({
   }
 
   const activeCount = stats.filter((s) => Number(values[s.key]) !== 0).length;
+  const untrackedActive = stats.filter(
+    (s) => Number(values[s.key]) !== 0 && !s.tracked,
+  ).length;
 
   return (
     <form action={action} className="space-y-4">
@@ -80,6 +83,13 @@ export function ScoringPanel({
         <p className="muted text-sm">
           Points per unit of each stat. {activeCount} of {stats.length} stats
           are scoring. Set a stat to 0 to switch it off.
+          {untrackedActive > 0 && (
+            <span className="text-negative">
+              {" "}
+              {untrackedActive} of them are not being tracked yet and will
+              score nothing.
+            </span>
+          )}
         </p>
 
         <input
@@ -127,8 +137,17 @@ export function ScoringPanel({
                       {stat.value_type === "flag" && (
                         <span className="pill ml-2">bonus</span>
                       )}
+                      {!stat.tracked && (
+                        <span className="pill ml-2 border-negative/50 text-negative">
+                          not tracked yet
+                        </span>
+                      )}
                     </p>
-                    <p className="muted text-xs">{stat.description}</p>
+                    <p className="muted text-xs">
+                      {stat.description}
+                      {!stat.tracked &&
+                        " Needs play-by-play data, which is not ingested yet -- points set here will not score."}
+                    </p>
                   </div>
 
                   <input

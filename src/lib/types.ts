@@ -192,6 +192,10 @@ export interface StatDefinition {
   value_type: "count" | "flag" | "rate";
   default_points: number;
   scorable: boolean;
+  /** Which ingestion job populates this stat. */
+  source: string;
+  /** False while nothing populates it yet. */
+  tracked: boolean;
   sort_order: number;
 }
 
