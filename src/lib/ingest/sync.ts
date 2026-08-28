@@ -452,7 +452,10 @@ export async function syncWeekStats(
 
     return {
       rows: written,
-      message: `${statRows.length} player lines, ${defenseRows.length} D/ST, rescored ${weeks.length} week(s)`,
+      message:
+        `${statRows.length} player lines, ${defenseRows.length} D/ST, ` +
+        `${pbp.size} play-by-play totals, rescored ${weeks.length} week(s)` +
+        (skippedGames > 0 ? `, skipped ${skippedGames} unknown games` : ""),
     };
   });
 }
