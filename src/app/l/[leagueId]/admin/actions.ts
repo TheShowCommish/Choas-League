@@ -252,6 +252,37 @@ export async function recomputeScores(
   };
 }
 
+export async function generatePlayoffs(leagueId: string): Promise<AdminResult> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("generate_playoffs", {
+    p_league: leagueId,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath(`/l/${leagueId}`, "layout");
+  return { ok: `Bracket generated: ${data ?? 0} matchup(s).` };
+}
+
+export async function advancePlayoffs(
+  leagueId: string,
+  week: number,
+): Promise<AdminResult> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("advance_playoffs", {
+    p_league: leagueId,
+    p_week: week,
+  });
+  if (error) return { error: error.message };
+
+  revalidatePath(`/l/${leagueId}`, "layout");
+  return {
+    ok:
+      data === 0
+        ? "That was the final. The season is complete."
+        : `Next round created: ${data} matchup(s).`,
+  };
+}
+
 export async function setupDraft(
   leagueId: string,
   formData: FormData,

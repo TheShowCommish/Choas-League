@@ -4,7 +4,9 @@ import { useState, useTransition } from "react";
 import type { Draft, League, Team } from "@/lib/types";
 import type { MemberRow } from "./tabs";
 import {
+  advancePlayoffs,
   assignTeamOwner,
+  generatePlayoffs,
   generateSchedule,
   processWaivers,
   recomputeScores,
@@ -73,6 +75,27 @@ export function ToolsPanel({
           button="Recompute all weeks"
           disabled={pending}
           onClick={() => run(() => recomputeScores(league.id, null))}
+        />
+
+        <Tool
+          title="Start the playoffs"
+          description={`Seeds the top ${league.playoff_teams} by record, then points scored, and builds the bracket from week ${league.playoff_start_week}. Seeds are frozen once generated.`}
+          button="Generate bracket"
+          disabled={pending}
+          onClick={() =>
+            run(
+              () => generatePlayoffs(league.id),
+              "Generate the playoff bracket? This replaces any existing one.",
+            )
+          }
+        />
+
+        <Tool
+          title="Advance the playoffs"
+          description={`Takes the winners of week ${league.current_week} into the next round. Every game that week has to be final first.`}
+          button={`Advance week ${league.current_week}`}
+          disabled={pending}
+          onClick={() => run(() => advancePlayoffs(league.id, league.current_week))}
         />
 
         <Tool
