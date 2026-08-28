@@ -39,19 +39,38 @@ so the page never scrolls sideways.
 
 ### 1. Run the database migrations
 
-In the Supabase dashboard, open **SQL Editor** and run each file in
-`supabase/migrations/` **in filename order**, from `0001` to `0032`.
-Paste one file at a time and run it.
-
-If you have the Supabase CLI linked to the project, this does the same
-thing in one go:
+Add `SUPABASE_DB_URL` to `.env.local` (Dashboard > Project Settings >
+Database > Connection string > URI), then:
 
 ```bash
-supabase db push
+npm run db:push
 ```
 
+That applies everything outstanding and records it in
+`public.schema_migrations`, so it is safe to re-run. `--dry-run` lists
+what would happen without doing it.
+
+**On a database whose schema was set up by hand**, tell it what is
+already there before pushing, or it will try to apply `0001` to a
+database that already has it:
+
+```bash
+npm run db:push -- --baseline 0023
+```
+
+`0010` is generated from the stat catalog and rewritten whenever a stat
+is added, so re-run it after regenerating rather than leaving history to
+claim it is done:
+
+```bash
+npm run db:push -- --redo 0010
+```
+
+You can still paste files into the dashboard **SQL Editor** by hand, in
+filename order from `0001` to `0032`, if you would rather.
+
 To check the SQL before it touches your project, this applies every
-migration to a throwaway in-memory Postgres:
+migration to a throwaway in-memory Postgres and touches nothing real:
 
 ```bash
 npm run db:verify
