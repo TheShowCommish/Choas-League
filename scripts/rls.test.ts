@@ -609,6 +609,83 @@ describe("trades", () => {
   });
 });
 
+describe("scoring is commissioner-only", () => {
+  test("a manager cannot recompute their own league's scores", async () => {
+    await db.actAs(world.bob.userId);
+
+    await assert.rejects(
+      () =>
+        db.q("select public.recompute_week_scores($1, $2, 1)", [
+          world.leagueA,
+          SEASON,
+        ]),
+      /Only the commissioner/,
+    );
+  });
+
+  test("an outsider cannot recompute another league's scores", async () => {
+    await db.actAs(world.mallory.userId);
+
+    await assert.rejects(
+      () =>
+        db.q("select public.recompute_week_scores($1, $2, 1)", [
+          world.leagueA,
+          SEASON,
+        ]),
+      /Only the commissioner/,
+    );
+  });
+
+  test("the commissioner can", async () => {
+    await db.actAs(world.alice.userId);
+    await db.q("select public.recompute_week_scores($1, $2, 1)", [
+      world.leagueA,
+      SEASON,
+    ]);
+  });
+
+  test("an outsider learns nothing from the availability helpers", async () => {
+    await db.actAs(world.mallory.userId);
+
+    // Bob has RLS_WR on his roster in League A, so this is true for a
+    // member -- but Mallory must not be able to tell.
+    const answer = await db.one<{ free: boolean }>(
+      "select public.player_is_free($1, 'RLS_WR') as free",
+      [world.leagueA],
+    );
+    assert.equal(answer.free, false, "answers as if the league did not exist");
+
+    await db.actAs(world.bob.userId);
+    const real = await db.one<{ free: boolean }>(
+      "select public.player_is_free($1, 'RLS_WR') as free",
+      [world.leagueA],
+    );
+    assert.equal(real.free, false, "and for Bob it is genuinely false");
+
+    const other = await db.one<{ free: boolean }>(
+      "select public.player_is_free($1, 'RLS_RB') as free",
+      [world.leagueA],
+    );
+    assert.equal(other.free, true, "a player nobody rosters is free");
+  });
+});
+
+describe("draft clocks", () => {
+  test("an outsider cannot drive somebody else's draft", async () => {
+    await db.actAs(world.alice.userId);
+    const draft = await db.one<{ generate_draft: string }>(
+      "select public.generate_draft($1) as generate_draft",
+      [world.leagueA],
+    );
+
+    await db.actAs(world.mallory.userId);
+    await assert.rejects(
+      () => db.q("select public.autopick($1)", [draft.generate_draft]),
+      /not your draft/,
+    );
+  });
+});
+
 describe("private draft queues", () => {
   test("your draft queue is yours alone", async () => {
     await db.actAs(world.bob.userId);

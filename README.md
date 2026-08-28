@@ -40,7 +40,7 @@ so the page never scrolls sideways.
 ### 1. Run the database migrations
 
 In the Supabase dashboard, open **SQL Editor** and run each file in
-`supabase/migrations/` **in filename order**, from `0001` to `0022`.
+`supabase/migrations/` **in filename order**, from `0001` to `0023`.
 Paste one file at a time and run it.
 
 If you have the Supabase CLI linked to the project, this does the same
