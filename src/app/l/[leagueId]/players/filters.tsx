@@ -10,14 +10,13 @@ const AVAILABILITY = [
   { value: "all", label: "Everyone" },
 ];
 
-const SORTS = [
-  { value: "points", label: "Season points" },
-  { value: "last", label: "Last week" },
-  { value: "average", label: "Average" },
-  { value: "name", label: "Name" },
-];
-
-export function PlayerFilters({ positions }: { positions: string[] }) {
+export function PlayerFilters({
+  positions,
+  nflTeams,
+}: {
+  positions: string[];
+  nflTeams: string[];
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -93,23 +92,27 @@ export function PlayerFilters({ positions }: { positions: string[] }) {
         </div>
 
         <div>
-          <label className="label" htmlFor="sort">
-            Sort by
+          <label className="label" htmlFor="team">
+            NFL team
           </label>
           <select
-            id="sort"
+            id="team"
             className="input"
-            value={params.get("sort") ?? "points"}
-            onChange={(e) => update({ sort: e.target.value })}
+            value={params.get("team") ?? ""}
+            onChange={(e) => update({ team: e.target.value })}
           >
-            {SORTS.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
+            <option value="">Every team</option>
+            {nflTeams.map((t) => (
+              <option key={t} value={t}>
+                {t}
               </option>
             ))}
           </select>
         </div>
       </div>
+      <p className="muted text-xs">
+        Sort by any column using its heading.
+      </p>
     </div>
   );
 }

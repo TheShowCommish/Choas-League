@@ -6,6 +6,7 @@
  *   npm run ingest -- stats            # the current week
  *   npm run ingest -- stats all        # backfill the whole season
  *   npm run ingest -- stats 3
+ *   npm run ingest -- projections 6    # Sleeper projections for week 6
  *   npm run ingest -- all              # players, games, then the season
  *
  * Use this for the first load and for backfills: a full season of stats
@@ -22,7 +23,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 loadEnv(join(here, "..", ".env.local"));
 
-const { syncGames, syncPlayers, syncWeekStats } = await import(
+const { syncGames, syncPlayers, syncProjections, syncWeekStats } = await import(
   "../src/lib/ingest/sync.ts"
 );
 const { currentSeason } = await import("../src/lib/ingest/nflverse.ts");
@@ -78,6 +79,16 @@ try {
       break;
     }
 
+    case "projections": {
+      const week = Number(weekArg);
+      if (!Number.isInteger(week) || week < 1) {
+        console.error("Which week? e.g. npm run ingest -- projections 6");
+        process.exit(1);
+      }
+      report(await syncProjections(season, week));
+      break;
+    }
+
     case "all":
       // Players and games first: stat rows reference both.
       report(await syncPlayers(season));
@@ -87,7 +98,9 @@ try {
 
     default:
       console.error(`Unknown command "${command}".`);
-      console.error("Try: players | games | stats [week|all] | all");
+      console.error(
+      "Try: players | games | stats [week|all] | projections <week> | all",
+    );
       process.exit(1);
   }
 

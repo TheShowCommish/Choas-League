@@ -14,6 +14,7 @@ import {
   type StatMap,
 } from "./map-stats.ts";
 import { aggregatePlayByPlay } from "./pbp.ts";
+import { fetchProjections, fetchSleeperIdMap } from "./sleeper.ts";
 
 /**
  * The ingestion jobs.
@@ -159,6 +160,78 @@ export async function syncPlayers(season: number): Promise<SyncResult> {
 
     const written = await upsertInBatches(supabase, "nfl_players", rows, "id");
     return { rows: written };
+  });
+}
+
+/**
+ * Weekly projections from Sleeper.
+ *
+ * Stored as a stat line rather than a points total so each league scores
+ * it with its own rules -- see 0028. Also backfills nfl_players.sleeper_id
+ * on the way through, since the mapping has to be fetched anyway and
+ * nothing else populates that column.
+ */
+export async function syncProjections(
+  season: number,
+  week: number,
+): Promise<SyncResult> {
+  const supabase = createAdminClient();
+
+  return record(supabase, "sync_projections", season, week, async () => {
+    const idMap = await fetchSleeperIdMap();
+
+    // gsis -> sleeper, for the column on nfl_players.
+    const bySleeper: Record<string, unknown>[] = [];
+    for (const [sleeperId, gsisId] of idMap) {
+      bySleeper.push({ id: gsisId, sleeper_id: sleeperId });
+    }
+
+    // Only rows we already hold; an upsert would otherwise invent
+    // players with no name, which violates the not-null on full_name.
+    const { data: known } = await supabase.from("nfl_players").select("id");
+    const knownIds = new Set((known ?? []).map((p) => p.id as string));
+
+    let mapped = 0;
+    for (const row of bySleeper) {
+      if (!knownIds.has(row.id as string)) continue;
+      mapped++;
+    }
+
+    const updates = bySleeper.filter((r) => knownIds.has(r.id as string));
+    for (let i = 0; i < updates.length; i += BATCH) {
+      const chunk = updates.slice(i, i + BATCH);
+      const { error } = await supabase
+        .from("nfl_players")
+        .upsert(chunk, { onConflict: "id" });
+      if (error) throw new Error(`sleeper_id backfill: ${error.message}`);
+    }
+
+    const projections = await fetchProjections(season, week, idMap);
+
+    const rows = projections
+      .filter((p) => knownIds.has(p.playerId))
+      .map((p) => ({
+        player_id: p.playerId,
+        season,
+        week,
+        stats: p.stats,
+        opponent: p.opponent,
+        injury_status: p.injuryStatus,
+        source: "sleeper",
+        updated_at: new Date().toISOString(),
+      }));
+
+    const written = await upsertInBatches(
+      supabase,
+      "player_week_projections",
+      rows,
+      "player_id,season,week",
+    );
+
+    return {
+      rows: written,
+      message: `${written} projections, ${mapped} sleeper ids mapped`,
+    };
   });
 }
 

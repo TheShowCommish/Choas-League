@@ -87,6 +87,9 @@ export interface NflPlayer {
   jersey_number: number | null;
   status: string | null;
   headshot_url: string | null;
+  /** Cross-source ids, for the research feeds. Either may be absent. */
+  espn_id: string | null;
+  sleeper_id: string | null;
 }
 
 export interface NflGame {

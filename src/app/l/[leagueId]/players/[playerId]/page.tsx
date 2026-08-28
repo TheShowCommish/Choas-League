@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLeagueContext } from "@/lib/league";
 import { createClient } from "@/lib/supabase/server";
+import { fetchPlayerNews } from "@/lib/research/news";
 import { STAT_BY_KEY } from "@/lib/stats/catalog";
 import type { NflPlayer, ScoreBreakdownEntry } from "@/lib/types";
 
@@ -21,12 +22,37 @@ interface RawStatRow {
 
 export default async function PlayerPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ leagueId: string; playerId: string }>;
+  searchParams: Promise<{ season?: string }>;
 }) {
   const { leagueId, playerId } = await params;
+  const { season: seasonParam } = await searchParams;
   const { league } = await getLeagueContext(leagueId);
   const supabase = await createClient();
+
+  // Every season we hold a stat line for, newest first. Scored points
+  // only exist for the league's own season -- the scoring engine writes
+  // player_week_scores per league-season -- so other years show the raw
+  // stat line and say so.
+  const { data: seasonRows } = await supabase
+    .from("player_game_stats")
+    .select("season")
+    .eq("player_id", playerId)
+    .order("season", { ascending: false });
+
+  const seasons = [
+    ...new Set((seasonRows ?? []).map((r) => r.season as number)),
+  ].sort((a, b) => b - a);
+
+  const requested = Number(seasonParam);
+  const season =
+    seasons.includes(requested) ? requested
+    : seasons.includes(league.season) ? league.season
+    : (seasons[0] ?? league.season);
+
+  const isLeagueSeason = season === league.season;
 
   const [
     { data: player, error: playerError },
@@ -40,13 +66,13 @@ export default async function PlayerPage({
         .select("week, points, is_final, breakdown")
         .eq("league_id", leagueId)
         .eq("player_id", playerId)
-        .eq("season", league.season)
+        .eq("season", season)
         .order("week"),
       supabase
         .from("player_game_stats")
         .select("week, stats, source")
         .eq("player_id", playerId)
-        .eq("season", league.season)
+        .eq("season", season)
         .order("week"),
       supabase
         .from("roster_players")
@@ -60,12 +86,36 @@ export default async function PlayerPage({
   // A failed query and a player who does not exist are different things.
   // Collapsing both into a 404 hides real faults -- an RLS change or a
   // malformed select looks exactly like a bad URL.
+  // Both of these are best-effort: an unofficial third-party API is not
+  // allowed to decide whether this page renders.
+  const [projectedPoints, projection] = await Promise.all([
+    isLeagueSeason
+      ? supabase
+          .rpc("projected_points", {
+            p_league: leagueId,
+            p_player: playerId,
+            p_season: season,
+            p_week: league.current_week,
+          })
+          .then((r) => (r.error ? null : (r.data as number | null)))
+      : Promise.resolve(null),
+    supabase
+      .from("player_week_projections")
+      .select("stats, opponent, injury_status")
+      .eq("player_id", playerId)
+      .eq("season", season)
+      .eq("week", league.current_week)
+      .maybeSingle()
+      .then((r) => r.data),
+  ]);
+
   if (playerError) {
     throw new Error(`Could not load player ${playerId}: ${playerError.message}`);
   }
   if (!player) notFound();
 
   const p = player as NflPlayer;
+  const news = await fetchPlayerNews(p.espn_id);
   const weeks = (scores ?? []) as WeekRow[];
   const rawByWeek = new Map(
     ((raw ?? []) as RawStatRow[]).map((r) => [r.week, r.stats]),
@@ -118,6 +168,29 @@ export default async function PlayerPage({
         </div>
       </header>
 
+      {seasons.length > 1 && (
+        <nav className="flex flex-wrap items-center gap-2">
+          <span className="muted text-sm">Season</span>
+          {seasons.map((year) => (
+            <Link
+              key={year}
+              href={`/l/${leagueId}/players/${playerId}?season=${year}`}
+              className={`btn btn-sm ${year === season ? "btn-primary" : ""}`}
+            >
+              {year}
+            </Link>
+          ))}
+        </nav>
+      )}
+
+      {!isLeagueSeason && (
+        <p className="card muted text-sm">
+          {season} is not this league&rsquo;s season, so there are no fantasy
+          points for it &mdash; scoring is applied per league-season. The raw
+          stat lines below are the real thing.
+        </p>
+      )}
+
       <div className="card flex flex-wrap gap-4">
         <Stat label="Season points" value={total.toFixed(1)} />
         <Stat label="Games" value={String(weeks.length)} />
@@ -135,10 +208,87 @@ export default async function PlayerPage({
         />
       </div>
 
+      {(projection || projectedPoints !== null) && (
+        <section className="card space-y-2">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="h2">Week {league.current_week} projection</h2>
+            {projectedPoints !== null && (
+              <span className="text-lg font-semibold tabular-nums">
+                {Number(projectedPoints).toFixed(1)} pts
+              </span>
+            )}
+          </div>
+
+          <p className="muted text-sm">
+            Sleeper&rsquo;s projected stat line, scored with this
+            league&rsquo;s rules rather than theirs
+            {projection?.opponent ? ` · vs ${projection.opponent}` : ""}.
+          </p>
+
+          {projection?.injury_status && (
+            <p className="text-negative text-sm font-medium">
+              {projection.injury_status}
+            </p>
+          )}
+
+          {projection?.stats && (
+            <p className="muted text-xs">
+              {Object.entries(projection.stats as Record<string, number>)
+                .sort((a, b) => b[1] - a[1])
+                .map(
+                  ([key, value]) =>
+                    `${STAT_BY_KEY[key]?.label ?? key} ${round(value)}`,
+                )
+                .join(" · ")}
+            </p>
+          )}
+        </section>
+      )}
+
+      {news.length > 0 && (
+        <section>
+          <h2 className="h2 mb-2">News</h2>
+          <ul className="card-tight divide-y divide-border/60">
+            {news.map((item) => (
+              <li key={item.id} className="p-3">
+                {item.url ? (
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-medium hover:text-accent"
+                  >
+                    {item.headline}
+                  </a>
+                ) : (
+                  <p className="text-sm font-medium">{item.headline}</p>
+                )}
+                {item.description && (
+                  <p className="muted mt-1 text-xs">{item.description}</p>
+                )}
+                {item.published && (
+                  <time className="muted text-xs" dateTime={item.published}>
+                    {new Date(item.published).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    })}
+                  </time>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <section>
         <h2 className="h2 mb-2">Week by week</h2>
         {weeks.length === 0 ? (
-          <p className="card muted">No scored games yet this season.</p>
+          <p className="card muted">
+            {isLeagueSeason
+              ? "No scored games yet this season."
+              : `No scored games for ${season}.`}
+          </p>
         ) : (
           <div className="space-y-2">
             {weeks.map((w) => (
@@ -154,7 +304,7 @@ export default async function PlayerPage({
 
       {seasonTotals.size > 0 && (
         <section>
-          <h2 className="h2 mb-2">Season stat totals</h2>
+          <h2 className="h2 mb-2">{season} stat totals</h2>
           <p className="muted mb-2 text-sm">
             Everything recorded for this player, whether or not your league
             scores it.

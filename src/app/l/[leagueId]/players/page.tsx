@@ -6,6 +6,7 @@ import type { WaiverClaim } from "@/lib/types";
 import { PlayerFilters } from "./filters";
 import { PlayerActions } from "./player-actions";
 import { PendingClaims } from "./pending-claims";
+import { SortHeader } from "./sortable";
 
 const PAGE_SIZE = 50;
 
@@ -15,6 +16,7 @@ export interface PoolRow {
   pos: string | null;
   team_abbr: string | null;
   status: string | null;
+  headshot_url: string | null;
   owner_team_id: string | null;
   owner_team_name: string | null;
   on_waivers: boolean;
@@ -23,6 +25,9 @@ export interface PoolRow {
   avg_points: number;
   games: number;
   last_points: number;
+  next_opponent: string | null;
+  next_kickoff: string | null;
+  next_is_home: boolean | null;
   total_count: number;
 }
 
@@ -36,6 +41,8 @@ export default async function PlayersPage({
     pos?: string;
     avail?: string;
     sort?: string;
+    dir?: string;
+    team?: string;
     page?: string;
   }>;
 }) {
@@ -47,8 +54,9 @@ export default async function PlayersPage({
   const page = Math.max(Number(sp.page) || 1, 1);
   const availability = sp.avail || "available";
   const sort = sp.sort || "points";
+  const dir = sp.dir === "asc" ? "asc" : "desc";
 
-  const [{ data: pool }, { data: positions }, { data: claims }] =
+  const [{ data: pool }, { data: positions }, { data: nflTeams }, { data: claims }] =
     await Promise.all([
       supabase.rpc("league_player_pool", {
         p_league: leagueId,
@@ -58,8 +66,11 @@ export default async function PlayersPage({
         p_sort: sort,
         p_limit: PAGE_SIZE,
         p_offset: (page - 1) * PAGE_SIZE,
+        p_team: sp.team || null,
+        p_dir: dir,
       }),
       supabase.rpc("available_positions"),
+      supabase.rpc("available_nfl_teams"),
       myTeam
         ? supabase
             .from("waiver_claims")
@@ -113,6 +124,9 @@ export default async function PlayersPage({
         positions={(positions ?? []).map(
           (p: { pos: string; player_count: number }) => p.pos,
         )}
+        nflTeams={(nflTeams ?? []).map(
+          (t: { abbr: string; player_count: number }) => t.abbr,
+        )}
       />
 
       <p className="muted text-sm">
@@ -124,18 +138,21 @@ export default async function PlayersPage({
         <table className="table">
           <thead>
             <tr>
-              <th>Player</th>
-              <th>Status</th>
-              <th className="text-right">Last</th>
-              <th className="text-right">Avg</th>
-              <th className="text-right">Total</th>
+              <SortHeader column="name" label="Player" defaultDir="asc" />
+              <SortHeader column="position" label="Pos" defaultDir="asc" />
+              <SortHeader column="team" label="Team" defaultDir="asc" />
+              <SortHeader column="owner" label="Status" defaultDir="asc" />
+              <SortHeader column="kickoff" label="Next" defaultDir="asc" />
+              <SortHeader column="last" label="Last" className="text-right" />
+              <SortHeader column="average" label="Avg" className="text-right" />
+              <SortHeader column="points" label="Total" className="text-right" />
               <th className="w-24" />
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="muted py-6 text-center">
+                <td colSpan={9} className="muted py-6 text-center">
                   No players match those filters.
                 </td>
               </tr>
@@ -150,10 +167,10 @@ export default async function PlayersPage({
                   >
                     {row.full_name}
                   </Link>
-                  <span className="muted text-xs">
-                    {row.pos ?? "?"} &middot; {row.team_abbr ?? "FA"}
-                  </span>
                 </td>
+
+                <td className="text-xs">{row.pos ?? "?"}</td>
+                <td className="text-xs">{row.team_abbr ?? "FA"}</td>
 
                 <td className="text-xs">
                   {row.owner_team_name ? (
@@ -163,6 +180,14 @@ export default async function PlayersPage({
                   ) : (
                     <span className="text-positive">Free agent</span>
                   )}
+                </td>
+
+                <td className="whitespace-nowrap text-xs">
+                  <NextGame
+                    opponent={row.next_opponent}
+                    kickoff={row.next_kickoff}
+                    isHome={row.next_is_home}
+                  />
                 </td>
 
                 <td className="text-right tabular-nums">
@@ -197,6 +222,39 @@ export default async function PlayersPage({
 
       <Pagination page={page} pageCount={pageCount} searchParams={sp} />
     </div>
+  );
+}
+
+/**
+ * Next week's fixture. No row for the player's team that week means a
+ * bye, which is the thing you most want to see before setting a lineup.
+ */
+function NextGame({
+  opponent,
+  kickoff,
+  isHome,
+}: {
+  opponent: string | null;
+  kickoff: string | null;
+  isHome: boolean | null;
+}) {
+  if (!opponent) return <span className="text-negative">BYE</span>;
+
+  return (
+    <>
+      <span className="block">
+        {isHome ? "vs" : "@"} {opponent}
+      </span>
+      {kickoff && (
+        <time className="muted block" dateTime={kickoff}>
+          {new Date(kickoff).toLocaleString(undefined, {
+            weekday: "short",
+            hour: "numeric",
+            minute: "2-digit",
+          })}
+        </time>
+      )}
+    </>
   );
 }
 
