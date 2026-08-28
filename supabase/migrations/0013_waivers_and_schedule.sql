@@ -36,6 +36,8 @@ begin
     raise exception 'Only the commissioner can run waivers';
   end if;
 
+  perform public.begin_internal_write();
+
   v_capacity := public.roster_capacity(p_league);
 
   -- Anything whose hold has expired is a plain free agent again.

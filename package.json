@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "gen:stat-seed": "node scripts/generate-stat-seed.ts",
-    "db:verify": "node scripts/verify-migrations.ts"
+    "db:verify": "node scripts/verify-migrations.ts",
+    "test": "node --test scripts/*.test.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.5",

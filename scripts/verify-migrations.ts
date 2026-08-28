@@ -1,63 +1,42 @@
 /**
- * Applies every migration to a throwaway in-memory Postgres (PGlite) to
- * check it parses and runs, before we point it at the real project.
+ * Applies every migration to a throwaway in-memory Postgres to check it
+ * parses and runs, before we point it at the real project.
  *
  *   npm run db:verify
- *
- * PGlite has no Supabase auth schema, so we stub the few things the
- * migrations touch: auth.users, auth.uid(), auth.jwt(), and the
- * `authenticated` / `anon` roles. Everything else runs for real, which
- * catches typos, bad column references and broken PL/pgSQL.
  */
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
+import { MIGRATIONS_DIR, migrationFiles } from "./lib/test-db.ts";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const migrationsDir = join(here, "..", "supabase", "migrations");
-
-const STUBS = `
-create schema if not exists auth;
-
-create table if not exists auth.users (
-  id    uuid primary key default gen_random_uuid(),
-  email text
-);
-
-create or replace function auth.uid() returns uuid
-  language sql stable as $fn$ select current_setting('test.uid', true)::uuid $fn$;
-
-create or replace function auth.jwt() returns jsonb
-  language sql stable as $fn$
-    select coalesce(current_setting('test.jwt', true)::jsonb, '{}'::jsonb)
-  $fn$;
-
-do $do$ begin
-  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
-    create role authenticated;
-  end if;
-  if not exists (select 1 from pg_roles where rolname = 'anon') then
-    create role anon;
-  end if;
-end $do$;
-`;
-
+// Applied one at a time (rather than via createTestDb) so a failure can
+// name the file it came from.
 const db = await PGlite.create({ extensions: { pgcrypto } });
-
 await db.exec("create extension if not exists pgcrypto;");
-await db.exec(STUBS);
+await db.exec(`
+  create schema if not exists auth;
+  create table if not exists auth.users (
+    id uuid primary key, email text,
+    raw_user_meta_data jsonb not null default '{}'::jsonb);
+  create or replace function auth.uid() returns uuid language sql stable
+    as $fn$ select nullif(current_setting('test.uid', true), '')::uuid $fn$;
+  create or replace function auth.jwt() returns jsonb language sql stable
+    as $fn$ select '{}'::jsonb $fn$;
+  do $do$ begin
+    if not exists (select 1 from pg_roles where rolname = 'authenticated')
+      then create role authenticated; end if;
+    if not exists (select 1 from pg_roles where rolname = 'anon')
+      then create role anon; end if;
+  end $do$;
+`);
 
-const files = readdirSync(migrationsDir)
-  .filter((f) => f.endsWith(".sql"))
-  .sort();
-
+const files = migrationFiles();
 let failed = 0;
+
 for (const file of files) {
-  const sql = readFileSync(join(migrationsDir, file), "utf8");
   try {
-    await db.exec(sql);
+    await db.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
     console.log(`  ok    ${file}`);
   } catch (err) {
     failed++;
@@ -65,20 +44,22 @@ for (const file of files) {
     console.error(`  FAIL  ${file}`);
     console.error(`        ${e.message}`);
     if (e.hint) console.error(`        hint: ${e.hint}`);
-    if (e.query) console.error(`        in: ${e.query.slice(0, 400)}`);
+    if (e.query) console.error(`        in:   ${e.query.slice(0, 300)}`);
   }
 }
 
 if (failed === 0) {
-  const { rows } = await db.query<{ n: number }>(
+  const stats = await db.query<{ n: number }>(
     "select count(*)::int as n from public.stat_definitions",
   );
-  const { rows: tables } = await db.query<{ n: number }>(
-    "select count(*)::int as n from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
+  const tables = await db.query<{ n: number }>(
+    `select count(*)::int as n from information_schema.tables
+     where table_schema = 'public' and table_type = 'BASE TABLE'`,
   );
   console.log(
-    `\nAll ${files.length} migrations applied. ` +
-      `${tables[0].n} tables, ${rows[0].n} stat definitions.`,
+    `
+All ${files.length} migrations applied. ` +
+      `${tables.rows[0].n} tables, ${stats.rows[0].n} stat definitions.`,
   );
 }
 

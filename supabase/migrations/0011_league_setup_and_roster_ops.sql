@@ -43,6 +43,22 @@ drop trigger if exists teams_default_faab on public.teams;
 create trigger teams_default_faab before insert on public.teams
   for each row execute function public.default_team_faab();
 
+-- Marks the current transaction as an internal write, so guard triggers
+-- know the change is coming from one of our own trusted functions rather
+-- than straight from a client. Transaction-local, so it cannot leak into
+-- the next statement on a pooled connection.
+--
+-- PostgREST only exposes functions in the API schema, so a client has no
+-- way to call set_config itself and forge this.
+create or replace function public.begin_internal_write()
+returns void
+language sql
+as $$
+  select set_config('app.internal_write', 'on', true);
+$$;
+
+revoke execute on function public.begin_internal_write() from authenticated, anon;
+
 -- A team owner may rename their team; everything else is commissioner
 -- territory. RLS lets the owner UPDATE the row, this pins down which
 -- columns they can actually move.
@@ -53,6 +69,12 @@ security definer
 set search_path = public
 as $$
 begin
+  -- Trade execution and waiver processing move FAAB and waiver priority
+  -- on behalf of a manager who is not the commissioner.
+  if coalesce(current_setting('app.internal_write', true), '') = 'on' then
+    return new;
+  end if;
+
   if public.is_commissioner(new.league_id) then
     return new;
   end if;

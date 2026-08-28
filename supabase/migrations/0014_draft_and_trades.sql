@@ -227,6 +227,8 @@ begin
     raise exception 'Only an accepted trade can be executed';
   end if;
 
+  perform public.begin_internal_write();
+
   select * into v_league from public.leagues where id = v_trade.league_id;
 
   for v_item in
