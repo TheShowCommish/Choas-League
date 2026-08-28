@@ -67,7 +67,7 @@ npm run db:push -- --redo 0010
 ```
 
 You can still paste files into the dashboard **SQL Editor** by hand, in
-filename order from `0001` to `0032`, if you would rather.
+filename order from `0001` to `0033`, if you would rather.
 
 To check the SQL before it touches your project, this applies every
 migration to a throwaway in-memory Postgres and touches nothing real:
