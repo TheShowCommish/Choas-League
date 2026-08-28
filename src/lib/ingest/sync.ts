@@ -380,11 +380,21 @@ export async function syncWeekStats(
       }
     }
 
-    // Only write stats for players we actually have rows for.
+    // Stat rows reference both a player and a game, so both have to
+    // exist or the whole batch fails on a foreign key.
     const known = await loadKnownPlayers(supabase, [...byPlayer.keys()]);
+    const knownGames = await loadKnownGames(supabase, season);
+
+    if (knownGames.size === 0) {
+      throw new Error(
+        `No games loaded for ${season}. Stats reference the schedule, so ` +
+          `run "npm run ingest -- games" for that season first.`,
+      );
+    }
 
     const statRows: Record<string, unknown>[] = [];
     const now = new Date().toISOString();
+    let skippedGames = 0;
 
     for (const [playerId, games] of byPlayer) {
       if (!known.has(playerId)) continue;
@@ -392,6 +402,12 @@ export async function syncWeekStats(
       for (const [gameId, stats] of games) {
         const info = meta.get(`${playerId}|${gameId}`);
         if (!info) continue;
+        // A game we do not have: usually a preseason or postseason
+        // fixture the schedule sync filtered out.
+        if (!knownGames.has(gameId)) {
+          skippedGames++;
+          continue;
+        }
 
         statRows.push({
           player_id: playerId,
@@ -408,12 +424,9 @@ export async function syncWeekStats(
       }
     }
 
-    const defenseRows = await buildTeamDefenseRows(
-      supabase,
-      season,
-      week,
-      pbpDefense,
-    );
+    const defenseRows = (
+      await buildTeamDefenseRows(supabase, season, week, pbpDefense)
+    ).filter((row) => knownGames.has(row.game_id as string));
     const all = [...statRows, ...defenseRows];
 
     const written = await upsertInBatches(
@@ -556,6 +569,31 @@ async function loadPfrMap(supabase: Admin): Promise<Map<string, string>> {
  * Which of these player ids exist in nfl_players. A stat line for an
  * unknown player would violate the foreign key and fail the whole batch.
  */
+/** The game ids we hold for a season, so stat rows can be filtered. */
+async function loadKnownGames(
+  supabase: Admin,
+  season: number,
+): Promise<Set<string>> {
+  const known = new Set<string>();
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("nfl_games")
+      .select("id")
+      .eq("season", season)
+      .range(from, from + pageSize - 1);
+
+    if (error) throw new Error(`Reading games: ${error.message}`);
+    if (!data || data.length === 0) break;
+
+    for (const row of data) known.add(row.id as string);
+    if (data.length < pageSize) break;
+  }
+
+  return known;
+}
+
 async function loadKnownPlayers(
   supabase: Admin,
   ids: string[],
