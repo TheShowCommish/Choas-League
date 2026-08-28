@@ -107,10 +107,25 @@ const SOURCE_OVERRIDES: Record<string, StatSource> = Object.fromEntries([
     "rec_150_bonus",
     "rec_200_bonus",
     "rec_10_catch_bonus",
+    "coach_win",
+    "coach_loss",
+    "coach_tie",
+    "coach_win_margin",
+    "coach_loss_margin",
+    "coach_points_scored",
+    "coach_offensive_yards",
+    "coach_turnovers_committed",
+    "coach_turnovers_forced",
+    "coach_win_streak",
+    "coach_loss_streak",
   ].map((k) => [k, "derived" as StatSource]),
 
   // Only obtainable by aggregating play-by-play.
   ...[
+    // The one coach stat that needs plays rather than box scores:
+    // trailing at the start of the fourth quarter and winning anyway.
+    "coach_comeback_4q",
+
     // Punting: the weekly player release carries no punting at all, so
     // every one of these is counted off individual punt plays.
     "punts",
@@ -306,6 +321,34 @@ const KICKING = group("Kicking", "player", [
 ]);
 
 // ---------------------------------------------------------------------------
+// Head coaching
+//
+// A head coach is a pseudo-player with id HC_<abbr> and position 'HC',
+// exactly as a D/ST is DST_<abbr> and 'DEF'. That keeps every roster,
+// lineup, draft, waiver and trade query single-path -- a coach is drafted
+// and started like anybody else.
+//
+// His stats are his team's: what the team did is what the coach did.
+// Streaks are the odd ones out, in that they depend on earlier weeks
+// rather than on this game alone; ingestion walks the season in order and
+// writes how many games into a streak each result left him.
+// ---------------------------------------------------------------------------
+const COACHING = group("Head Coach", "player", [
+  ["coach_win", "Win", "The coach's team won.", "flag", 5],
+  ["coach_loss", "Loss", "The coach's team lost.", "flag", 0],
+  ["coach_tie", "Tie", "The game ended level.", "flag", 1],
+  ["coach_win_margin", "Winning Margin", "Points won by. Zero in a defeat.", "count", 0.5],
+  ["coach_loss_margin", "Losing Margin", "Points lost by. Zero in a win.", "count", 0],
+  ["coach_points_scored", "Points Scored", "Points the team scored.", "count", 0],
+  ["coach_offensive_yards", "Offensive Yards", "Passing plus rushing yards.", "count", 0.02],
+  ["coach_turnovers_committed", "Turnovers Committed", "Interceptions thrown plus fumbles lost.", "count", -2],
+  ["coach_turnovers_forced", "Turnovers Forced", "Interceptions plus fumbles recovered.", "count", 2],
+  ["coach_comeback_4q", "4th Quarter Comeback", "Trailed entering the fourth quarter and won.", "flag", 10],
+  ["coach_win_streak", "Win Streak", "Games into the current winning run, this game included.", "count", 1],
+  ["coach_loss_streak", "Loss Streak", "Games into the current losing run, this game included.", "count", -1],
+]);
+
+// ---------------------------------------------------------------------------
 // Punting
 //
 // nflverse's weekly player file has no punting in it whatsoever, so a
@@ -420,6 +463,7 @@ export const STAT_CATALOG: StatDefinition[] = [
   ...RECEIVING,
   ...KICKING,
   ...PUNTING,
+  ...COACHING,
   ...MISC_OFFENSE,
   ...DEFENSE_IDP,
   ...TEAM_DEFENSE,

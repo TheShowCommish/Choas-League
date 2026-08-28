@@ -43,6 +43,18 @@ export async function aggregatePlayByPlay(
 ): Promise<PbpTotals> {
   const totals: PbpTotals = new Map();
 
+  // A comeback is only visible from the score as the fourth quarter
+  // opens, which is a property of the game rather than of any one play.
+  // Recorded on the first Q4 play seen, then resolved at the end.
+  const fourthQuarter = new Map<
+    string,
+    { home: string; away: string; homeScore: number; awayScore: number }
+  >();
+  const finalScore = new Map<
+    string,
+    { home: string; away: string; homeScore: number; awayScore: number }
+  >();
+
   // Drives are only recognisable as three-and-outs once seen whole, so
   // they are tallied separately and folded in at the end.
   const drives = new Map<
@@ -58,6 +70,24 @@ export async function aggregatePlayByPlay(
     if (!gameId) continue;
 
     const defense = normalizeTeam(s(play, "defteam"));
+
+    // Score state, for the comeback. total_*_score is the score *before*
+    // the play, which is exactly what "entering the quarter" means.
+    const homeTeam = normalizeTeam(s(play, "home_team"));
+    const awayTeam = normalizeTeam(s(play, "away_team"));
+    if (homeTeam && awayTeam) {
+      const scores = {
+        home: homeTeam,
+        away: awayTeam,
+        homeScore: n(play, "total_home_score"),
+        awayScore: n(play, "total_away_score"),
+      };
+      if (n(play, "qtr") === 4 && !fourthQuarter.has(gameId)) {
+        fourthQuarter.set(gameId, scores);
+      }
+      // Every play overwrites, so the last one seen is the final score.
+      finalScore.set(gameId, scores);
+    }
     const yardline = n(play, "yardline_100");
     const airYards = n(play, "air_yards");
     const yardsGained = n(play, "yards_gained");
@@ -186,6 +216,24 @@ export async function aggregatePlayByPlay(
   for (const drive of drives.values()) {
     if (drive.result === "Punt" && drive.playCount > 0 && drive.playCount <= 3) {
       bump(totals, `DST_${drive.defense}|${drive.gameId}`, "dst_three_and_outs");
+    }
+  }
+
+  // Trailing as the fourth quarter began, and won.
+  for (const [gameId, start] of fourthQuarter) {
+    const end = finalScore.get(gameId);
+    if (!end) continue;
+
+    const homeTrailed = start.homeScore < start.awayScore;
+    const awayTrailed = start.awayScore < start.homeScore;
+    const homeWon = end.homeScore > end.awayScore;
+    const awayWon = end.awayScore > end.homeScore;
+
+    if (homeTrailed && homeWon) {
+      bump(totals, `HC_${start.home}|${gameId}`, "coach_comeback_4q");
+    }
+    if (awayTrailed && awayWon) {
+      bump(totals, `HC_${start.away}|${gameId}`, "coach_comeback_4q");
     }
   }
 

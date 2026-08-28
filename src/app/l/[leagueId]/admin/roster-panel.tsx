@@ -7,7 +7,7 @@ import { savePositionLimits, saveRosterSlots, type AdminResult } from "./actions
 const empty: AdminResult = {};
 
 /** Positions a slot can be restricted to. Empty selection = any position. */
-const POSITIONS = ["QB", "RB", "WR", "TE", "K", "P", "DEF", "DL", "LB", "DB"];
+const POSITIONS = ["QB", "RB", "WR", "TE", "K", "P", "DEF", "HC", "DL", "LB", "DB"];
 
 interface SlotDraft {
   slot_key: string;

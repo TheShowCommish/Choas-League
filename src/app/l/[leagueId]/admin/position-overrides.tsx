@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { ScoringRule, StatDefinition } from "@/lib/types";
 
-const POSITIONS = ["QB", "RB", "WR", "TE", "K", "P", "DEF", "DL", "LB", "DB"];
+const POSITIONS = ["QB", "RB", "WR", "TE", "K", "P", "DEF", "HC", "DL", "LB", "DB"];
 
 interface Override {
   statKey: string;

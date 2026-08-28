@@ -14,6 +14,7 @@ import {
   type StatMap,
 } from "./map-stats.ts";
 import { aggregatePlayByPlay } from "./pbp.ts";
+import { buildCoachGames, coachPlayerRows } from "./coaches.ts";
 import { fetchProjections, fetchSleeperIdMap } from "./sleeper.ts";
 
 /**
@@ -399,9 +400,10 @@ export async function syncWeekStats(
       };
     }
 
-    // Play-by-play counters for team defenses, folded in once the D/ST
-    // rows themselves are built further down.
+    // Play-by-play counters for team defenses and head coaches, folded
+    // in once those rows are built further down.
     const pbpDefense = new Map<string, StatMap>();
+    const pbpCoaches = new Map<string, StatMap>();
 
     // The charting feeds are keyed by pfr_player_id, so translate.
     const pfrToGsis = await loadPfrMap(supabase);
@@ -426,6 +428,8 @@ export async function syncWeekStats(
       } else if (playerId.startsWith("DST_")) {
         // D/ST lines are built later, so stash these for that pass.
         pbpDefense.set(key, stats);
+      } else if (playerId.startsWith("HC_")) {
+        pbpCoaches.set(key, stats);
       }
     }
 
@@ -500,7 +504,32 @@ export async function syncWeekStats(
     const defenseRows = (
       await buildTeamDefenseRows(supabase, season, week, pbpDefense)
     ).filter((row) => knownGames.has(row.game_id as string));
-    const all = [...statRows, ...defenseRows];
+
+    // Head coaches. The pseudo-player rows go in first: a stat line
+    // referencing HC_<abbr> needs that player to exist.
+    const coachGames = await buildCoachGames(season, week, pbpCoaches);
+    const coachPlayers = coachPlayerRows(coachGames);
+
+    if (coachPlayers.length > 0) {
+      await upsertInBatches(supabase, "nfl_players", coachPlayers, "id");
+    }
+
+    const coachRows = coachGames
+      .filter((game) => knownGames.has(game.gameId))
+      .map((game) => ({
+        player_id: game.coachPlayerId,
+        game_id: game.gameId,
+        season: game.season,
+        week: game.week,
+        season_type: game.seasonType,
+        team_abbr: game.team,
+        opponent: game.opponent,
+        source: "final",
+        stats: game.stats,
+        updated_at: now,
+      }));
+
+    const all = [...statRows, ...defenseRows, ...coachRows];
 
     const written = await upsertInBatches(
       supabase,
@@ -527,6 +556,7 @@ export async function syncWeekStats(
       rows: written,
       message:
         `${statRows.length} player lines, ${defenseRows.length} D/ST, ` +
+        `${coachRows.length} coaches, ` +
         `${pbp.size} play-by-play totals, rescored ${weeks.length} week(s)` +
         (skippedGames > 0 ? `, skipped ${skippedGames} unknown games` : ""),
     };
