@@ -432,7 +432,7 @@ describe("position limits", () => {
       [f.leagueId],
     );
 
-    const backs = [];
+    const backs: string[] = [];
     for (let i = 0; i < 3; i++) {
       backs.push(await player(`LIMIT_RB${i}`, `Limit Back ${i}`, "RB"));
     }
