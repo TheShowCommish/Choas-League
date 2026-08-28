@@ -51,6 +51,7 @@ export function AdminTabs({
   draft,
   ingestRuns,
   origin,
+  positionLimits,
 }: {
   league: League;
   teams: Team[];
@@ -62,6 +63,7 @@ export function AdminTabs({
   ingestRuns: IngestRun[];
   /** Absolute site origin, for building the invite link. */
   origin: string;
+  positionLimits: Record<string, number>;
 }) {
   const [tab, setTab] = useState<TabId>("scoring");
 
@@ -89,7 +91,11 @@ export function AdminTabs({
         <ScoringPanel leagueId={league.id} stats={stats} rules={rules} />
       )}
       {tab === "roster" && (
-        <RosterPanel leagueId={league.id} slots={rosterSlots} />
+        <RosterPanel
+          leagueId={league.id}
+          slots={rosterSlots}
+          positionLimits={positionLimits}
+        />
       )}
       {tab === "settings" && <SettingsPanel league={league} />}
       {tab === "tools" && (

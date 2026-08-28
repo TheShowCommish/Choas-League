@@ -421,6 +421,101 @@ describe("matchups and standings", () => {
 
 // ---------------------------------------------------------------------------
 
+describe("position limits", () => {
+  test("a limit caps the whole roster, not just the starters", async () => {
+    const f = await league("pos-limit");
+    await db.actAs(f.commish);
+    await db.q(
+      `insert into public.league_position_limits (league_id, position, max_count)
+       values ($1, 'RB', 2)
+       on conflict (league_id, position) do update set max_count = 2`,
+      [f.leagueId],
+    );
+
+    const backs = [];
+    for (let i = 0; i < 3; i++) {
+      backs.push(await player(`LIMIT_RB${i}`, `Limit Back ${i}`, "RB"));
+    }
+
+    await db.actAs(f.managers[0]);
+    await db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], backs[0]]);
+    await db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], backs[1]]);
+
+    // The third is refused even though there is bench space for him.
+    await assert.rejects(
+      () =>
+        db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], backs[2]]),
+      /allows/,
+    );
+
+    // Dropping one makes room again.
+    await db.q("select public.drop_player($1, $2)", [f.teamIds[1], backs[0]]);
+    await db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], backs[2]]);
+
+    const held = await db.one<{ n: number }>(
+      "select public.position_count($1, 'RB')::int as n",
+      [f.teamIds[1]],
+    );
+    assert.equal(held.n, 2);
+  });
+
+  test("a position with no limit row is unlimited", async () => {
+    const f = await league("pos-nolimit");
+    await db.actAs(f.commish);
+    await db.q(
+      "delete from public.league_position_limits where league_id = $1",
+      [f.leagueId],
+    );
+
+    await db.actAs(f.managers[0]);
+    for (let i = 0; i < 5; i++) {
+      const pid = await player(`FREE_TE${i}`, `Free TE ${i}`, "TE");
+      await db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], pid]);
+    }
+
+    const held = await db.one<{ n: number }>(
+      "select public.position_count($1, 'TE')::int as n",
+      [f.teamIds[1]],
+    );
+    assert.equal(held.n, 5);
+  });
+
+  test("a waiver claim that would breach the limit is marked invalid", async () => {
+    const f = await league("pos-waiver");
+    await db.actAs(f.commish);
+    await db.q(
+      `insert into public.league_position_limits (league_id, position, max_count)
+       values ($1, 'QB', 1)
+       on conflict (league_id, position) do update set max_count = 1`,
+      [f.leagueId],
+    );
+
+    const first = await player("WVR_QB1", "Waiver QB 1", "QB");
+    const second = await player("WVR_QB2", "Waiver QB 2", "QB");
+
+    await db.actAs(f.managers[0]);
+    await db.q("select public.add_free_agent($1, $2)", [f.teamIds[1], first]);
+
+    await db.q(
+      `insert into public.waiver_claims
+         (league_id, team_id, add_player_id, bid_amount, season, week)
+       values ($1, $2, $3, 1, $4, 1)`,
+      [f.leagueId, f.teamIds[1], second, SEASON],
+    );
+
+    await db.actAs(f.commish);
+    await db.q("select public.process_waivers($1)", [f.leagueId]);
+
+    const claim = await db.one<{ status: string; result_note: string }>(
+      "select status, result_note from public.waiver_claims where add_player_id = $1",
+      [second],
+    );
+    // Reported, not thrown: the rest of the batch still runs.
+    assert.equal(claim.status, "invalid");
+    assert.match(claim.result_note, /position/i);
+  });
+});
+
 describe("roster moves", () => {
   test("adding a free agent puts him on the roster and logs it", async () => {
     const f = await league("addfa");

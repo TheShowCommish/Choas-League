@@ -3,14 +3,21 @@
 import { useActionState, useMemo, useState, useTransition } from "react";
 import type { RosterEntry } from "@/lib/roster";
 import type { RosterSlot } from "@/lib/types";
-import { slotAccepts } from "@/lib/roster-slots";
+import { expandSlots, slotAccepts } from "@/lib/roster-slots";
 import { saveLineup, dropPlayerById, type LineupResult } from "./actions";
 
 const empty: LineupResult = {};
 
-/** The value used in the select for "not in the lineup this week". */
-const UNASSIGNED = "";
-
+/**
+ * The lineup, as a board of slots rather than a list of players.
+ *
+ * Every slot the league defines is drawn whether or not anyone is in it,
+ * so an empty QB spot on Sunday morning is obvious. Moving a player is a
+ * swap: pick a slot, choose who should be in it, and whoever was there
+ * takes the incomer's place. That is the same gesture whether you are
+ * filling an empty slot, benching a starter or swapping two starters,
+ * which is why there is no separate "bench" or "start" action.
+ */
 export function LineupEditor({
   leagueId,
   teamId,
@@ -28,31 +35,81 @@ export function LineupEditor({
 }) {
   const [state, action, pending] = useActionState(saveLineup, empty);
 
-  // Held locally so the slot counts update as you edit, before saving.
-  const [assignments, setAssignments] = useState<Record<string, string>>(() =>
-    Object.fromEntries(roster.map((r) => [r.playerId, r.slotKey ?? UNASSIGNED])),
+  const byPlayer = useMemo(
+    () => new Map(roster.map((r) => [r.playerId, r])),
+    [roster],
   );
 
-  const counts = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const slotKey of Object.values(assignments)) {
-      if (slotKey) map.set(slotKey, (map.get(slotKey) ?? 0) + 1);
+  /** Every individual spot in the league's roster, in order. */
+  const spots = useMemo(() => expandSlots(slots), [slots]);
+
+  /**
+   * spot key -> player id. Seeded from the saved lineup: players are
+   * dealt into the spots matching the slot they were saved into.
+   */
+  const [placed, setPlaced] = useState<Record<string, string | null>>(() => {
+    const next: Record<string, string | null> = {};
+    const remaining = new Map<string, string[]>();
+
+    for (const entry of roster) {
+      if (!entry.slotKey) continue;
+      const list = remaining.get(entry.slotKey) ?? [];
+      list.push(entry.playerId);
+      remaining.set(entry.slotKey, list);
     }
-    return map;
-  }, [assignments]);
 
-  const starterSlots = slots.filter((s) => s.is_starter);
+    for (const spot of spots) {
+      next[spot.key] = remaining.get(spot.slotKey)?.shift() ?? null;
+    }
+    return next;
+  });
 
-  const projectedTotal = roster
-    .filter((r) => {
-      const slotKey = assignments[r.playerId];
-      return slotKey && starterSlots.some((s) => s.slot_key === slotKey);
-    })
-    .reduce((sum, r) => sum + r.points, 0);
+  const [openSpot, setOpenSpot] = useState<string | null>(null);
 
-  const overfilled = slots.filter(
-    (s) => (counts.get(s.slot_key) ?? 0) > s.count,
+  const placedIds = new Set(
+    Object.values(placed).filter((id): id is string => id !== null),
   );
+  const unassigned = roster.filter((r) => !placedIds.has(r.playerId));
+
+  /** Where a player is sitting right now, if anywhere. */
+  function spotOf(playerId: string): string | null {
+    return (
+      Object.entries(placed).find(([, id]) => id === playerId)?.[0] ?? null
+    );
+  }
+
+  /**
+   * Puts `playerId` in `spotKey`, moving whoever was there to wherever
+   * the incoming player came from. If he came from the unassigned pool,
+   * the outgoing player joins it.
+   */
+  function put(spotKey: string, playerId: string | null) {
+    setPlaced((prev) => {
+      const next = { ...prev };
+      const displaced = next[spotKey] ?? null;
+
+      if (playerId === null) {
+        next[spotKey] = null;
+        return next;
+      }
+
+      const from = Object.entries(prev).find(([, id]) => id === playerId)?.[0];
+      next[spotKey] = playerId;
+      if (from && from !== spotKey) next[from] = displaced;
+
+      return next;
+    });
+    setOpenSpot(null);
+  }
+
+  const starterSpots = spots.filter((s) => s.isStarter);
+
+  const projectedTotal = starterSpots.reduce((sum, spot) => {
+    const id = placed[spot.key];
+    return sum + (id ? (byPlayer.get(id)?.points ?? 0) : 0);
+  }, 0);
+
+  const emptyStarters = starterSpots.filter((s) => !placed[s.key]).length;
 
   return (
     <form action={action} className="space-y-4">
@@ -61,150 +118,253 @@ export function LineupEditor({
       <input type="hidden" name="season" value={season} />
       <input type="hidden" name="week" value={week} />
 
-      {/* Slot usage, so it is obvious what still needs filling. */}
-      <div className="card flex flex-wrap gap-2">
-        {slots.map((slot) => {
-          const used = counts.get(slot.slot_key) ?? 0;
-          const full = used === slot.count;
-          const over = used > slot.count;
-          return (
-            <span
-              key={slot.slot_key}
-              className={`pill ${
-                over
-                  ? "border-negative text-negative"
-                  : full
-                    ? "border-positive text-positive"
-                    : ""
-              }`}
-            >
-              {slot.label} {used}/{slot.count}
-            </span>
-          );
-        })}
-        <span className="pill ml-auto">
-          Starters: {projectedTotal.toFixed(1)} pts
+      {/* One field per player, carrying the slot he ended up in. The
+          server contract is unchanged: an empty value means "not in the
+          lineup this week". */}
+      {roster.map((entry) => (
+        <input
+          key={entry.playerId}
+          type="hidden"
+          name={`slot__${entry.playerId}`}
+          value={
+            spots.find((s) => placed[s.key] === entry.playerId)?.slotKey ?? ""
+          }
+        />
+      ))}
+
+      <div className="card flex flex-wrap items-center gap-3">
+        <span className="pill">
+          Starters {starterSpots.length - emptyStarters}/{starterSpots.length}
         </span>
+        {emptyStarters > 0 && (
+          <span className="pill border-negative text-negative">
+            {emptyStarters} empty
+          </span>
+        )}
+        <span className="pill ml-auto">{projectedTotal.toFixed(1)} pts</span>
       </div>
 
-      <div className="card-tight table-scroll">
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Player</th>
-              <th className="w-32">Slot</th>
-              <th className="text-right">Pts</th>
-              <th className="w-10" />
-            </tr>
-          </thead>
-          <tbody>
-            {roster.map((entry) => (
-              <PlayerRow
-                key={entry.playerId}
-                entry={entry}
-                slots={slots}
-                value={assignments[entry.playerId] ?? UNASSIGNED}
-                onChange={(slotKey) =>
-                  setAssignments((prev) => ({
-                    ...prev,
-                    [entry.playerId]: slotKey,
-                  }))
-                }
-                leagueId={leagueId}
-                teamId={teamId}
-              />
+      <SpotList
+        title="Starters"
+        spots={spots.filter((s) => s.isStarter)}
+        placed={placed}
+        byPlayer={byPlayer}
+        openSpot={openSpot}
+        setOpenSpot={setOpenSpot}
+        roster={roster}
+        spotOf={spotOf}
+        put={put}
+        leagueId={leagueId}
+        teamId={teamId}
+      />
+
+      <SpotList
+        title="Bench and reserve"
+        spots={spots.filter((s) => !s.isStarter)}
+        placed={placed}
+        byPlayer={byPlayer}
+        openSpot={openSpot}
+        setOpenSpot={setOpenSpot}
+        roster={roster}
+        spotOf={spotOf}
+        put={put}
+        leagueId={leagueId}
+        teamId={teamId}
+      />
+
+      {unassigned.length > 0 && (
+        <section>
+          <h2 className="h2 mb-2">Not in the lineup</h2>
+          <p className="muted mb-2 text-sm">
+            More players than spots. These score nothing until you find them
+            somewhere to sit.
+          </p>
+          <ul className="card-tight divide-y divide-border/60">
+            {unassigned.map((entry) => (
+              <li key={entry.playerId} className="flex items-center gap-3 p-3">
+                <PlayerLine entry={entry} />
+                <DropButton
+                  leagueId={leagueId}
+                  teamId={teamId}
+                  playerId={entry.playerId}
+                  playerName={entry.player.full_name}
+                  disabled={entry.locked}
+                />
+              </li>
             ))}
-          </tbody>
-        </table>
-      </div>
-
-      {overfilled.length > 0 && (
-        <p className="error-box">
-          Too many players at {overfilled.map((s) => s.label).join(", ")}.
-        </p>
+          </ul>
+        </section>
       )}
+
       {state.error && <p className="error-box">{state.error}</p>}
       {state.ok && <p className="ok-box">{state.ok}</p>}
 
-      <button
-        className="btn btn-primary w-full md:w-auto"
-        disabled={pending || overfilled.length > 0}
-      >
+      <button className="btn btn-primary w-full md:w-auto" disabled={pending}>
         {pending ? "Saving..." : `Save week ${week} lineup`}
       </button>
     </form>
   );
 }
 
-function PlayerRow({
-  entry,
-  slots,
-  value,
-  onChange,
+interface Spot {
+  key: string;
+  slotKey: string;
+  label: string;
+  isStarter: boolean;
+  eligiblePositions: string[];
+}
+
+function SpotList({
+  title,
+  spots,
+  placed,
+  byPlayer,
+  openSpot,
+  setOpenSpot,
+  roster,
+  spotOf,
+  put,
   leagueId,
   teamId,
 }: {
-  entry: RosterEntry;
-  slots: RosterSlot[];
-  value: string;
-  onChange: (slotKey: string) => void;
+  title: string;
+  spots: Spot[];
+  placed: Record<string, string | null>;
+  byPlayer: Map<string, RosterEntry>;
+  openSpot: string | null;
+  setOpenSpot: (key: string | null) => void;
+  roster: RosterEntry[];
+  spotOf: (playerId: string) => string | null;
+  put: (spotKey: string, playerId: string | null) => void;
   leagueId: string;
   teamId: string;
 }) {
-  const eligible = slots.filter((s) => slotAccepts(s, entry.player.position));
+  if (spots.length === 0) return null;
+
+  return (
+    <section>
+      <h2 className="h2 mb-2">{title}</h2>
+      <ul className="card-tight divide-y divide-border/60">
+        {spots.map((spot) => {
+          const playerId = placed[spot.key];
+          const entry = playerId ? byPlayer.get(playerId) : undefined;
+          const locked = entry?.locked ?? false;
+          const isOpen = openSpot === spot.key;
+
+          // Anyone eligible for this spot who is not locked in place.
+          const candidates = roster.filter(
+            (r) =>
+              r.playerId !== playerId &&
+              !r.locked &&
+              slotAccepts(
+                { eligible_positions: spot.eligiblePositions },
+                r.player.position,
+              ),
+          );
+
+          return (
+            <li key={spot.key} className="p-3">
+              <div className="flex items-center gap-3">
+                <span className="w-14 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">
+                  {spot.label}
+                </span>
+
+                {entry ? (
+                  <PlayerLine entry={entry} />
+                ) : (
+                  <span className="muted flex-1 text-sm italic">Empty</span>
+                )}
+
+                <button
+                  type="button"
+                  className="btn btn-sm shrink-0"
+                  disabled={locked}
+                  title={
+                    locked ? "This game has kicked off" : `Change ${spot.label}`
+                  }
+                  onClick={() => setOpenSpot(isOpen ? null : spot.key)}
+                >
+                  {locked ? "Locked" : entry ? "Swap" : "Fill"}
+                </button>
+
+                {entry && (
+                  <DropButton
+                    leagueId={leagueId}
+                    teamId={teamId}
+                    playerId={entry.playerId}
+                    playerName={entry.player.full_name}
+                    disabled={locked}
+                  />
+                )}
+              </div>
+
+              {isOpen && (
+                <div className="mt-3 rounded-lg border border-border bg-surface p-2">
+                  {entry && (
+                    <button
+                      type="button"
+                      className="btn btn-sm mb-2 w-full"
+                      onClick={() => put(spot.key, null)}
+                    >
+                      Leave {spot.label} empty
+                    </button>
+                  )}
+
+                  {candidates.length === 0 ? (
+                    <p className="muted p-2 text-sm">
+                      Nobody else on your roster can play here.
+                    </p>
+                  ) : (
+                    <ul className="max-h-72 divide-y divide-border/60 overflow-y-auto">
+                      {candidates.map((candidate) => {
+                        const from = spotOf(candidate.playerId);
+                        return (
+                          <li key={candidate.playerId}>
+                            <button
+                              type="button"
+                              className="flex w-full items-center gap-3 p-2 text-left hover:bg-bg"
+                              onClick={() => put(spot.key, candidate.playerId)}
+                            >
+                              <PlayerLine entry={candidate} />
+                              <span className="muted shrink-0 text-xs">
+                                {from ? "swap" : "add"}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
+
+function PlayerLine({ entry }: { entry: RosterEntry }) {
   const onBye = entry.game === null;
 
   return (
-    <tr>
-      <td>
-        <span className="block font-medium">{entry.player.full_name}</span>
-        <span className="muted text-xs">
-          {entry.player.position ?? "?"} &middot;{" "}
-          {entry.player.team_abbr ?? "FA"}
-          {onBye ? (
-            <span className="text-negative"> &middot; BYE</span>
-          ) : (
-            <> &middot; {entry.opponent}</>
-          )}
-          {entry.locked && <> &middot; locked</>}
-        </span>
-      </td>
-
-      <td>
-        <select
-          className="input"
-          name={`slot__${entry.playerId}`}
-          value={value}
-          disabled={entry.locked}
-          onChange={(e) => onChange(e.target.value)}
-          aria-label={`Slot for ${entry.player.full_name}`}
-        >
-          <option value={UNASSIGNED}>&mdash;</option>
-          {eligible.map((slot) => (
-            <option key={slot.slot_key} value={slot.slot_key}>
-              {slot.label}
-            </option>
-          ))}
-        </select>
-      </td>
-
-      <td className="text-right tabular-nums">
-        {entry.points.toFixed(1)}
-        {!entry.isFinal && entry.points !== 0 && (
-          <span className="muted text-xs"> *</span>
+    <span className="min-w-0 flex-1">
+      <span className="block truncate text-sm font-medium">
+        {entry.player.full_name}
+      </span>
+      <span className="muted block truncate text-xs">
+        {entry.player.position ?? "?"} &middot; {entry.player.team_abbr ?? "FA"}
+        {onBye ? (
+          <span className="text-negative"> &middot; BYE</span>
+        ) : (
+          <> &middot; {entry.opponent}</>
         )}
-      </td>
-
-      <td>
-        <DropButton
-          leagueId={leagueId}
-          teamId={teamId}
-          playerId={entry.playerId}
-          playerName={entry.player.full_name}
-          disabled={entry.locked}
-        />
-      </td>
-    </tr>
+        {" · "}
+        {entry.points.toFixed(1)} pts
+        {!entry.isFinal && entry.points !== 0 && " *"}
+      </span>
+    </span>
   );
 }
 
@@ -228,19 +388,17 @@ function DropButton({
   disabled: boolean;
 }) {
   const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   return (
     <button
       type="button"
-      className="btn btn-sm btn-danger"
+      className="btn btn-sm btn-danger shrink-0"
       disabled={disabled || pending}
-      title={error ?? `Drop ${playerName}`}
+      title={`Drop ${playerName}`}
       onClick={() => {
         if (!confirm(`Drop ${playerName}? He goes on waivers.`)) return;
         startTransition(async () => {
           const result = await dropPlayerById(leagueId, teamId, playerId);
-          setError(result.error ?? null);
           if (result.error) alert(result.error);
         });
       }}

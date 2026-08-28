@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import type { RosterSlot } from "@/lib/types";
-import { saveRosterSlots, type AdminResult } from "./actions";
+import { savePositionLimits, saveRosterSlots, type AdminResult } from "./actions";
 
 const empty: AdminResult = {};
 
@@ -20,9 +20,12 @@ interface SlotDraft {
 export function RosterPanel({
   leagueId,
   slots,
+  positionLimits,
 }: {
   leagueId: string;
   slots: RosterSlot[];
+  /** position -> cap. A position that is absent has no cap. */
+  positionLimits: Record<string, number>;
 }) {
   const [state, action, pending] = useActionState(saveRosterSlots, empty);
 
@@ -48,6 +51,7 @@ export function RosterPanel({
   const totalCount = draft.reduce((sum, s) => sum + s.count, 0);
 
   return (
+    <>
     <form action={action} className="space-y-4">
       <input type="hidden" name="league_id" value={leagueId} />
       <input type="hidden" name="slots" value={JSON.stringify(draft)} />
@@ -110,6 +114,20 @@ export function RosterPanel({
               </div>
             </div>
 
+            {slot.eligible_positions.length === 1 ? (
+              <p className="muted text-xs">
+                Takes {slot.eligible_positions[0]} only. To make this a
+                multi-position slot, use{" "}
+                <button
+                  type="button"
+                  className="text-accent underline"
+                  onClick={() => patch(index, { eligible_positions: [] })}
+                >
+                  any position
+                </button>{" "}
+                and pick from there.
+              </p>
+            ) : (
             <div>
               <span className="label">Eligible positions</span>
               <div className="flex flex-wrap gap-2">
@@ -136,9 +154,13 @@ export function RosterPanel({
                 })}
               </div>
               {slot.eligible_positions.length === 0 && (
-                <p className="muted mt-1 text-xs">Any position.</p>
+                <p className="muted mt-1 text-xs">
+                  Any position &mdash; a bench, an IR spot, or a flex once you
+                  tick two or more.
+                </p>
               )}
             </div>
+            )}
 
             <button
               type="button"
@@ -182,6 +204,67 @@ export function RosterPanel({
         Removing a slot benches anyone currently in it, for weeks that have
         not locked.
       </p>
+    </form>
+
+      <PositionLimits leagueId={leagueId} limits={positionLimits} />
+    </>
+  );
+}
+
+/**
+ * How many of each position a team may hold at once.
+ *
+ * This counts everyone on the roster, not just starters: a player takes
+ * up a place at his position whether he is starting, benched or on IR.
+ * Leave a box empty for no limit.
+ */
+function PositionLimits({
+  leagueId,
+  limits,
+}: {
+  leagueId: string;
+  limits: Record<string, number>;
+}) {
+  const [state, action, pending] = useActionState(savePositionLimits, empty);
+
+  return (
+    <form action={action} className="card space-y-3">
+      <input type="hidden" name="league_id" value={leagueId} />
+
+      <div>
+        <h3 className="h2">Position limits</h3>
+        <p className="muted text-sm">
+          The most a team may hold at each position, counting the bench and
+          IR. Leave one blank for no limit.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+        {POSITIONS.map((position) => (
+          <div key={position}>
+            <label className="label" htmlFor={`limit-${position}`}>
+              {position}
+            </label>
+            <input
+              id={`limit-${position}`}
+              name={`limit__${position}`}
+              type="number"
+              min={0}
+              max={40}
+              className="input"
+              defaultValue={limits[position] ?? ""}
+              placeholder="--"
+            />
+          </div>
+        ))}
+      </div>
+
+      {state.error && <p className="error-box">{state.error}</p>}
+      {state.ok && <p className="ok-box">{state.ok}</p>}
+
+      <button className="btn btn-primary w-full" disabled={pending}>
+        {pending ? "Saving..." : "Save position limits"}
+      </button>
     </form>
   );
 }

@@ -41,6 +41,15 @@ export default async function AdminPage({
       supabase.from("drafts").select("*").eq("league_id", leagueId).maybeSingle(),
     ]);
 
+  const { data: limits } = await supabase
+    .from("league_position_limits")
+    .select("position, max_count")
+    .eq("league_id", leagueId);
+
+  const positionLimits = Object.fromEntries(
+    (limits ?? []).map((l) => [l.position as string, l.max_count as number]),
+  );
+
   // Ingestion health: whether the stat jobs are actually running, which
   // is the first thing to check when scores look wrong.
   const { data: runs } = await supabase
@@ -76,6 +85,7 @@ export default async function AdminPage({
         draft={(draft ?? null) as Draft | null}
         ingestRuns={(runs ?? []) as IngestRun[]}
         origin={origin}
+        positionLimits={positionLimits}
       />
     </div>
   );

@@ -125,6 +125,59 @@ export async function saveScoringRules(
   }
 }
 
+/** Per-position roster caps. A blank box means no limit at that position. */
+export async function savePositionLimits(
+  _prev: AdminResult,
+  formData: FormData,
+): Promise<AdminResult> {
+  const leagueId = String(formData.get("league_id"));
+
+  try {
+    const supabase = await assertCommissioner(leagueId);
+
+    const keep: { league_id: string; position: string; max_count: number }[] = [];
+    const clear: string[] = [];
+
+    for (const [key, value] of formData.entries()) {
+      if (!key.startsWith("limit__")) continue;
+      const position = key.slice("limit__".length);
+      const raw = String(value).trim();
+
+      if (raw === "") {
+        clear.push(position);
+        continue;
+      }
+
+      const max = Number(raw);
+      if (!Number.isInteger(max) || max < 0) {
+        return { error: `"${raw}" is not a whole number (${position}).` };
+      }
+      keep.push({ league_id: leagueId, position, max_count: max });
+    }
+
+    if (clear.length > 0) {
+      const { error } = await supabase
+        .from("league_position_limits")
+        .delete()
+        .eq("league_id", leagueId)
+        .in("position", clear);
+      if (error) return { error: error.message };
+    }
+
+    if (keep.length > 0) {
+      const { error } = await supabase
+        .from("league_position_limits")
+        .upsert(keep, { onConflict: "league_id,position" });
+      if (error) return { error: error.message };
+    }
+
+    revalidatePath(`/l/${leagueId}`, "layout");
+    return { ok: "Position limits saved." };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+}
+
 /** Replace the whole roster layout in one go. */
 export async function saveRosterSlots(
   _prev: AdminResult,
