@@ -31,6 +31,17 @@ async function growLeague(f: Fixture, extra: number): Promise<string[]> {
     [f.leagueId],
   );
 
+  // A league is a fixed size now, so make room before inviting anyone.
+  await db.actAs(f.commish);
+  const size = await db.one<{ n: number }>(
+    "select count(*)::int as n from public.teams where league_id = $1",
+    [f.leagueId],
+  );
+  await db.q("select public.set_team_count($1, $2)", [
+    f.leagueId,
+    size.n + extra,
+  ]);
+
   for (let i = 0; i < extra; i++) {
     const uid = await db.createUser(`extra${i}-${f.leagueId}@example.com`);
     await db.actAs(uid);

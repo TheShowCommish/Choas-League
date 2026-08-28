@@ -88,9 +88,28 @@ describe("league setup", () => {
   });
 
   test("teams start with the league FAAB budget", async () => {
+    // Teams are created with the league, before the commissioner has
+    // finished configuring it, so changing the budget has to reach the
+    // teams that already exist.
     const f = await league("faab-budget", "faab_budget = 250");
-    // The budget default applies to teams created after the change.
+
     await db.actAs(f.commish);
+    const teams = await db.q<{ faab_remaining: number }>(
+      "select faab_remaining from public.teams where league_id = $1",
+      [f.leagueId],
+    );
+    assert.ok(teams.length > 0);
+    assert.deepEqual(
+      [...new Set(teams.map((t) => t.faab_remaining))],
+      [250],
+      "every team is on the league's budget",
+    );
+
+    // And a manager who joins later gets the same.
+    await db.q("select public.set_team_count($1, $2)", [
+      f.leagueId,
+      teams.length + 1,
+    ]);
     const code = await db.one<{ join_code: string }>(
       "select join_code from public.leagues where id = $1",
       [f.leagueId],
@@ -106,6 +125,67 @@ describe("league setup", () => {
       [t.join_league],
     );
     assert.equal(team.faab_remaining, 250);
+  });
+
+  test("a league cannot be joined once every team is claimed", async () => {
+    const f = await league("full-league");
+    const code = await db.one<{ join_code: string }>(
+      "select join_code from public.leagues where id = $1",
+      [f.leagueId],
+    );
+    const gatecrasher = await db.createUser("gatecrasher@example.com");
+    await db.actAs(gatecrasher);
+
+    await assert.rejects(
+      () =>
+        db.q("select public.join_league($1, $2)", [
+          code.join_code,
+          "Too Late FC",
+        ]),
+      /full/,
+    );
+  });
+
+  test("claiming a team takes it off the board for everyone else", async () => {
+    const f = await league("claiming");
+    await db.actAs(f.commish);
+    await db.q("select public.set_team_count($1, $2)", [f.leagueId, 6]);
+
+    const free = await db.one<{ id: string }>(
+      `select id from public.teams
+       where league_id = $1 and owner_id is null
+       order by slot_number limit 1`,
+      [f.leagueId],
+    );
+
+    const code = await db.one<{ join_code: string }>(
+      "select join_code from public.leagues where id = $1",
+      [f.leagueId],
+    );
+
+    // Two steps: become a member, then pick a team off the board.
+    const first = await db.createUser("claim-first@example.com");
+    await db.actAs(first);
+    await db.q("select public.join_league_as_member($1)", [code.join_code]);
+    await db.q("select public.claim_team($1, $2)", [free.id, "Claimed FC"]);
+
+    const second = await db.createUser("claim-second@example.com");
+    await db.actAs(second);
+    await db.q("select public.join_league_as_member($1)", [code.join_code]);
+
+    await assert.rejects(
+      () => db.q("select public.claim_team($1, $2)", [free.id, "Mine Now"]),
+      /already taken/,
+    );
+
+    // A member with no team can still take one of the free ones.
+    const stillFree = await db.one<{ id: string }>(
+      `select id from public.teams
+       where league_id = $1 and owner_id is null
+       order by slot_number limit 1`,
+      [f.leagueId],
+    );
+    await db.q("select public.claim_team($1, $2)", [stillFree.id, "Second FC"]);
   });
 });
 

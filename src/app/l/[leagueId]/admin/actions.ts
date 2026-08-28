@@ -298,6 +298,24 @@ export async function advancePlayoffs(
   };
 }
 
+/** Grow or shrink the league. Only ever removes teams nobody manages. */
+export async function setTeamCount(
+  leagueId: string,
+  count: number,
+): Promise<AdminResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("set_team_count", {
+    p_league: leagueId,
+    p_count: count,
+  });
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/l/${leagueId}`, "layout");
+  return { ok: `The league now has ${count} teams.` };
+}
+
+/** Hand a team to a member, or take it back. */
 export async function setupDraft(
   leagueId: string,
   formData: FormData,

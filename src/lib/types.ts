@@ -26,6 +26,8 @@ export interface League {
   commissioner_id: string;
   join_code: string;
   status: LeagueStatus;
+  /** How many teams the league holds. Fixed at creation, resizable. */
+  team_count: number;
   current_week: number;
   regular_season_weeks: number;
   playoff_start_week: number;
@@ -56,6 +58,10 @@ export interface Team {
   name: string;
   abbreviation: string;
   logo_url: string | null;
+  /** Hex, '#RRGGBB'. The team's accent colour through the UI. */
+  color: string;
+  /** Which generic slot this was, so "Team 7" keeps its place once renamed. */
+  slot_number: number | null;
   faab_remaining: number;
   waiver_priority: number;
 }

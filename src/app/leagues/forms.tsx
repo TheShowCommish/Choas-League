@@ -93,10 +93,33 @@ function CreateForm() {
         />
       </div>
       <div>
+        <label className="label" htmlFor="team_count">
+          How many teams
+        </label>
+        <input
+          id="team_count"
+          name="team_count"
+          type="number"
+          className="input"
+          defaultValue={10}
+          min={2}
+          max={32}
+        />
+        <p className="muted mt-1 text-xs">
+          All of them are created now as Team 1 to Team N. Managers claim one
+          when they join, and rename it themselves.
+        </p>
+      </div>
+      <div>
         <label className="label" htmlFor="create_team_name">
           Your team name
         </label>
-        <input id="create_team_name" name="team_name" className="input" />
+        <input
+          id="create_team_name"
+          name="team_name"
+          className="input"
+          placeholder="Leave blank to decide later"
+        />
       </div>
       {state.error && <p className="error-box">{state.error}</p>}
       <button className="btn btn-primary w-full" disabled={pending}>

@@ -3,6 +3,7 @@
 import { useState, useTransition } from "react";
 import type { Draft, League, Team } from "@/lib/types";
 import type { IngestRun, MemberRow } from "./tabs";
+import { InvitePanel } from "./invite-panel";
 import {
   advancePlayoffs,
   assignTeamOwner,
@@ -11,6 +12,7 @@ import {
   processWaivers,
   recomputeScores,
   setDraftStatus,
+  setTeamCount,
   setupDraft,
   type AdminResult,
 } from "./actions";
@@ -21,12 +23,14 @@ export function ToolsPanel({
   members,
   draft,
   ingestRuns,
+  origin,
 }: {
   league: League;
   teams: Team[];
   members: MemberRow[];
   draft: Draft | null;
   ingestRuns: IngestRun[];
+  origin: string;
 }) {
   const [result, setResult] = useState<AdminResult>({});
   const [pending, startTransition] = useTransition();
@@ -37,6 +41,8 @@ export function ToolsPanel({
   const [draftType, setDraftType] = useState<"snake" | "auction">(
     (draft?.type ?? league.draft_type) as "snake" | "auction",
   );
+
+  const [desiredTeams, setDesiredTeams] = useState(teams.length);
 
   /** Runs an action and surfaces whatever it says, success or failure. */
   function run(fn: () => Promise<AdminResult>, confirmText?: string) {
@@ -261,18 +267,64 @@ export function ToolsPanel({
         )}
       </section>
 
+      <InvitePanel
+        origin={origin}
+        leagueName={league.name}
+        joinCode={league.join_code}
+        freeTeams={teams.filter((t) => t.owner_id === null).length}
+      />
+
       <section className="card space-y-3">
         <h3 className="h2">Teams and managers</h3>
         <p className="muted text-sm">
-          Share the join code to add managers. Anyone already in the league can
-          be handed an unclaimed team here.
+          {teams.length} teams. Growing the league adds empty ones; shrinking
+          only ever removes teams nobody manages.
         </p>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div>
+            <label className="label" htmlFor="team-count">
+              How many teams
+            </label>
+            <input
+              id="team-count"
+              type="number"
+              min={2}
+              max={32}
+              className="input w-28"
+              defaultValue={teams.length}
+              onChange={(e) => setDesiredTeams(Number(e.target.value))}
+            />
+          </div>
+          <button
+            className="btn"
+            disabled={pending || desiredTeams === teams.length}
+            onClick={() =>
+              run(
+                () => setTeamCount(league.id, desiredTeams),
+                desiredTeams < teams.length
+                  ? `Remove ${teams.length - desiredTeams} unclaimed team(s)?`
+                  : undefined,
+              )
+            }
+          >
+            Resize
+          </button>
+        </div>
 
         <ul className="divide-y divide-border/60">
           {teams.map((team) => (
             <li key={team.id} className="flex items-center gap-3 py-2">
+              <span
+                className="size-4 shrink-0 rounded"
+                style={{ backgroundColor: team.color }}
+                aria-hidden
+              />
               <span className="min-w-0 flex-1 truncate text-sm">
                 {team.name}
+                {team.owner_id === null && (
+                  <span className="muted"> &middot; free</span>
+                )}
               </span>
               <select
                 className="input w-44"

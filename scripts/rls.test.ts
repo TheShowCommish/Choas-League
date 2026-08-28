@@ -46,8 +46,8 @@ before(async () => {
   // League A, run by Alice, with Bob as a manager.
   await db.actAs(aliceId);
   const a = await db.one<{ id: string; join_code: string }>(
-    `insert into public.leagues (name, season, commissioner_id)
-     values ('League A', $1, $2) returning id, join_code`,
+    `insert into public.leagues (name, season, commissioner_id, team_count)
+     values ('League A', $1, $2, 2) returning id, join_code`,
     [SEASON, aliceId],
   );
   const aliceTeam = await db.one<{ join_league: string }>(
@@ -64,8 +64,8 @@ before(async () => {
   // League B, a completely separate league Mallory belongs to.
   await db.actAs(malloryId);
   const b = await db.one<{ id: string; join_code: string }>(
-    `insert into public.leagues (name, season, commissioner_id)
-     values ('League B', $1, $2) returning id, join_code`,
+    `insert into public.leagues (name, season, commissioner_id, team_count)
+     values ('League B', $1, $2, 2) returning id, join_code`,
     [SEASON, malloryId],
   );
   const malloryTeam = await db.one<{ join_league: string }>(
@@ -488,16 +488,31 @@ describe("league creation", () => {
     );
     assert.ok(rules.length > 130, "the scoring catalog is seeded");
 
-    // And joining it works end to end.
+    // The league arrives at full size, every team unclaimed.
+    const seeded = await db.q<{ owner_id: string | null }>(
+      "select owner_id from public.teams where league_id = $1",
+      [created.id],
+    );
+    assert.equal(seeded.length, 10, "the default ten teams are seeded");
+    assert.ok(
+      seeded.every((t) => t.owner_id === null),
+      "nobody owns a team until they claim one",
+    );
+
+    // And joining claims one of them rather than making an eleventh.
     await db.q("select public.join_league($1, $2)", [
       created.join_code,
       "Carol FC",
     ]);
-    const team = await db.q(
-      "select id from public.teams where league_id = $1",
+    const after = await db.q<{ name: string; owner_id: string | null }>(
+      "select name, owner_id from public.teams where league_id = $1",
       [created.id],
     );
-    assert.equal(team.length, 1);
+    assert.equal(after.length, 10, "claiming does not create a team");
+    assert.deepEqual(
+      after.filter((t) => t.owner_id === carol).map((t) => t.name),
+      ["Carol FC"],
+    );
   });
 
   test("you cannot create a league in somebody else's name", async () => {

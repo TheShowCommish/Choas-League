@@ -164,17 +164,54 @@ export async function renameTeam(
   const leagueId = String(formData.get("league_id"));
   const teamId = String(formData.get("team_id"));
   const name = String(formData.get("name") ?? "").trim();
+  const abbreviation = String(formData.get("abbreviation") ?? "")
+    .trim()
+    .toUpperCase();
+  const color = String(formData.get("color") ?? "").trim();
+  const logoUrl = String(formData.get("logo_url") ?? "").trim();
 
   if (!name) return { error: "A team needs a name." };
+  if (color && !/^#[0-9a-fA-F]{6}$/.test(color)) {
+    return { error: "Pick a colour, or leave it alone." };
+  }
+
+  // Anything that ends up in an <img src>. Blocking javascript: and
+  // data: here keeps a pasted URL from becoming an injection vector.
+  if (logoUrl && !/^https:\/\//i.test(logoUrl)) {
+    return { error: "A logo link has to start with https://" };
+  }
 
   const supabase = await createClient();
   const { error } = await supabase
     .from("teams")
-    .update({ name })
+    .update({
+      name,
+      abbreviation: abbreviation.slice(0, 5),
+      ...(color ? { color } : {}),
+      logo_url: logoUrl || null,
+    })
     .eq("id", teamId);
 
   if (error) return { error: error.message };
 
   revalidatePath(`/l/${leagueId}`, "layout");
-  return { ok: "Team renamed." };
+  return { ok: "Team saved." };
+}
+
+/** Take one of the league's unclaimed teams. */
+export async function claimTeam(
+  leagueId: string,
+  teamId: string,
+  teamName: string,
+): Promise<LineupResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("claim_team", {
+    p_team: teamId,
+    p_team_name: teamName.trim() || null,
+  });
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/l/${leagueId}`, "layout");
+  return { ok: "Team claimed." };
 }

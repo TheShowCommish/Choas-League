@@ -50,6 +50,7 @@ export function AdminTabs({
   members,
   draft,
   ingestRuns,
+  origin,
 }: {
   league: League;
   teams: Team[];
@@ -59,6 +60,8 @@ export function AdminTabs({
   members: MemberRow[];
   draft: Draft | null;
   ingestRuns: IngestRun[];
+  /** Absolute site origin, for building the invite link. */
+  origin: string;
 }) {
   const [tab, setTab] = useState<TabId>("scoring");
 
@@ -96,6 +99,7 @@ export function AdminTabs({
           members={members}
           draft={draft}
           ingestRuns={ingestRuns}
+          origin={origin}
         />
       )}
     </>

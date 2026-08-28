@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { requireCommissioner } from "@/lib/league";
 import { createClient } from "@/lib/supabase/server";
 import type { Draft, Profile, ScoringRule, StatDefinition } from "@/lib/types";
@@ -10,6 +11,16 @@ export default async function AdminPage({
 }) {
   const { leagueId } = await params;
   const { league, teams, rosterSlots } = await requireCommissioner(leagueId);
+
+  // The invite link needs an absolute URL. Reading it here rather than
+  // from window in the client keeps the markup identical on both sides
+  // of hydration.
+  const headerList = await headers();
+  const host = headerList.get("x-forwarded-host") ?? headerList.get("host");
+  const protocol =
+    headerList.get("x-forwarded-proto") ??
+    (host?.startsWith("localhost") ? "http" : "https");
+  const origin = host ? `${protocol}://${host}` : "";
   const supabase = await createClient();
 
   const [{ data: stats }, { data: rules }, { data: members }, { data: draft }] =
@@ -64,6 +75,7 @@ export default async function AdminPage({
         members={memberProfiles}
         draft={(draft ?? null) as Draft | null}
         ingestRuns={(runs ?? []) as IngestRun[]}
+        origin={origin}
       />
     </div>
   );

@@ -28,9 +28,12 @@ export async function buildLeague(
   const commish = await db.createUser(`commish-${name}@example.com`, "Commish");
   await db.actAs(commish);
 
+  // Four teams, created with the league and claimed as each manager
+  // joins. Set on the insert rather than in `overrides`, because the
+  // teams are seeded by a trigger as the row lands.
   const league = await db.one<{ id: string; join_code: string }>(
-    `insert into public.leagues (name, season, commissioner_id)
-     values ($1, $2, $3) returning id, join_code`,
+    `insert into public.leagues (name, season, commissioner_id, team_count)
+     values ($1, $2, $3, 4) returning id, join_code`,
     [name, SEASON, commish],
   );
 

@@ -20,10 +20,13 @@ export default async function MyTeamPage({
     return (
       <div className="card">
         <h1 className="h1 mb-2">No team yet</h1>
-        <p className="muted">
-          You are in this league but do not own a team. Ask the commissioner
-          to assign you one.
+        <p className="muted mb-3">
+          You are in this league but have not taken a team. Pick one off the
+          board -- you can rename it and set its colours afterwards.
         </p>
+        <Link href={`/l/${leagueId}/claim`} className="btn btn-primary">
+          Choose a team
+        </Link>
       </div>
     );
   }
@@ -77,6 +80,9 @@ export default async function MyTeamPage({
         leagueId={leagueId}
         teamId={myTeam.id}
         currentName={myTeam.name}
+        currentAbbreviation={myTeam.abbreviation}
+        currentColor={myTeam.color}
+        currentLogoUrl={myTeam.logo_url}
       />
     </div>
   );
