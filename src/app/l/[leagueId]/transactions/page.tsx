@@ -54,7 +54,8 @@ export default async function TransactionsPage({
     .from("transactions")
     .select(
       "id, type, bid_amount, week, note, created_at, player_id, team_id, " +
-        "teams(name), nfl_players(full_name, position)",
+        "teams!transactions_team_id_fkey(name), " +
+        "nfl_players(full_name, position)",
       { count: "exact" },
     )
     .eq("league_id", leagueId)
@@ -64,7 +65,7 @@ export default async function TransactionsPage({
   if (sp.type) query = query.eq("type", sp.type);
   if (sp.team) query = query.eq("team_id", sp.team);
 
-  const { data, count } = await query;
+  const { data, count, error } = await query;
   const rows = (data ?? []) as unknown as Row[];
   const pageCount = Math.max(Math.ceil((count ?? 0) / PAGE_SIZE), 1);
 
@@ -112,7 +113,11 @@ export default async function TransactionsPage({
         </div>
       </form>
 
-      {rows.length === 0 ? (
+      {error ? (
+        <p className="error-box">
+          The transaction log could not be loaded: {error.message}
+        </p>
+      ) : rows.length === 0 ? (
         <p className="card muted">Nothing here yet.</p>
       ) : (
         <ul className="card-tight divide-y divide-border/60">

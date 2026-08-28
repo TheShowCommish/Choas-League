@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLeagueContext } from "@/lib/league";
@@ -27,8 +28,12 @@ export default async function PlayerPage({
   const { league } = await getLeagueContext(leagueId);
   const supabase = await createClient();
 
-  const [{ data: player }, { data: scores }, { data: raw }, { data: owner }] =
-    await Promise.all([
+  const [
+    { data: player, error: playerError },
+    { data: scores },
+    { data: raw },
+    { data: owner },
+  ] = await Promise.all([
       supabase.from("nfl_players").select("*").eq("id", playerId).maybeSingle(),
       supabase
         .from("player_week_scores")
@@ -52,6 +57,12 @@ export default async function PlayerPage({
         .maybeSingle(),
     ]);
 
+  // A failed query and a player who does not exist are different things.
+  // Collapsing both into a 404 hides real faults -- an RLS change or a
+  // malformed select looks exactly like a bad URL.
+  if (playerError) {
+    throw new Error(`Could not load player ${playerId}: ${playerError.message}`);
+  }
   if (!player) notFound();
 
   const p = player as NflPlayer;
@@ -78,16 +89,33 @@ export default async function PlayerPage({
         <Link href={`/l/${leagueId}/players`} className="muted text-sm">
           &larr; All players
         </Link>
-        <h1 className="h1 mt-1">{p.full_name}</h1>
-        <p className="muted">
-          {p.position ?? "?"} &middot; {p.team_abbr ?? "Free agent"}
-          {p.jersey_number != null && <> &middot; #{p.jersey_number}</>}
-          {ownerName ? (
-            <> &middot; rostered by {ownerName}</>
-          ) : (
-            <> &middot; available</>
+
+        <div className="mt-1 flex items-center gap-4">
+          {p.headshot_url && (
+            <Image
+              src={p.headshot_url}
+              alt=""
+              width={80}
+              height={80}
+              className="size-20 shrink-0 rounded-full border border-border bg-surface object-cover"
+              // Decorative: the name is right beside it in the heading.
+              aria-hidden
+            />
           )}
-        </p>
+
+          <div className="min-w-0">
+            <h1 className="h1">{p.full_name}</h1>
+            <p className="muted">
+              {p.position ?? "?"} &middot; {p.team_abbr ?? "Free agent"}
+              {p.jersey_number != null && <> &middot; #{p.jersey_number}</>}
+              {ownerName ? (
+                <> &middot; rostered by {ownerName}</>
+              ) : (
+                <> &middot; available</>
+              )}
+            </p>
+          </div>
+        </div>
       </header>
 
       <div className="card flex flex-wrap gap-4">

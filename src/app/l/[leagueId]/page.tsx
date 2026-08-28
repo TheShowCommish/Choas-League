@@ -24,7 +24,9 @@ export default async function LeagueHomePage({
       supabase.from("standings").select("*").eq("league_id", leagueId),
       supabase
         .from("transactions")
-        .select("id, type, note, created_at, teams(name), nfl_players(full_name)")
+        .select(
+          "id, type, note, created_at, teams!transactions_team_id_fkey(name), nfl_players(full_name)",
+        )
         .eq("league_id", leagueId)
         .order("created_at", { ascending: false })
         .limit(8),

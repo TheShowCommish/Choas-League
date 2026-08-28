@@ -31,6 +31,13 @@ export function ToolsPanel({
   const [result, setResult] = useState<AdminResult>({});
   const [pending, startTransition] = useTransition();
 
+  // Which format's settings to show. A snake draft has no budget and an
+  // auction has no rounds-per-team, so showing both at once only invites
+  // filling in a number that will be ignored.
+  const [draftType, setDraftType] = useState<"snake" | "auction">(
+    (draft?.type ?? league.draft_type) as "snake" | "auction",
+  );
+
   /** Runs an action and surfaces whatever it says, success or failure. */
   function run(fn: () => Promise<AdminResult>, confirmText?: string) {
     if (confirmText && !confirm(confirmText)) return;
@@ -140,12 +147,16 @@ export function ToolsPanel({
                 id="draft-type"
                 name="type"
                 className="input"
-                defaultValue={draft?.type ?? league.draft_type}
+                value={draftType}
+                onChange={(e) =>
+                  setDraftType(e.target.value as "snake" | "auction")
+                }
               >
                 <option value="snake">Snake</option>
                 <option value="auction">Auction</option>
               </select>
             </div>
+
             <div>
               <label className="label" htmlFor="rounds">
                 Rounds
@@ -160,34 +171,44 @@ export function ToolsPanel({
                 defaultValue={draft?.rounds ?? 16}
               />
             </div>
-            <div>
-              <label className="label" htmlFor="seconds_per_pick">
-                Seconds per pick
-              </label>
-              <input
-                id="seconds_per_pick"
-                name="seconds_per_pick"
-                type="number"
-                min={10}
-                max={600}
-                className="input"
-                defaultValue={draft?.seconds_per_pick ?? 90}
-              />
-            </div>
-            <div>
-              <label className="label" htmlFor="auction_budget">
-                Auction budget
-              </label>
-              <input
-                id="auction_budget"
-                name="auction_budget"
-                type="number"
-                min={1}
-                className="input"
-                defaultValue={draft?.auction_budget ?? 200}
-              />
-            </div>
+
+            {draftType === "snake" ? (
+              <div>
+                <label className="label" htmlFor="seconds_per_pick">
+                  Seconds per pick
+                </label>
+                <input
+                  id="seconds_per_pick"
+                  name="seconds_per_pick"
+                  type="number"
+                  min={10}
+                  max={600}
+                  className="input"
+                  defaultValue={draft?.seconds_per_pick ?? 90}
+                />
+              </div>
+            ) : (
+              <div>
+                <label className="label" htmlFor="auction_budget">
+                  Auction budget
+                </label>
+                <input
+                  id="auction_budget"
+                  name="auction_budget"
+                  type="number"
+                  min={1}
+                  className="input"
+                  defaultValue={draft?.auction_budget ?? 200}
+                />
+              </div>
+            )}
           </div>
+
+          <p className="muted text-xs">
+            {draftType === "snake"
+              ? "Rounds is how many players each team drafts. Order reverses every round."
+              : "Every team gets the same budget and bids on whoever they want. Rounds caps the squad size."}
+          </p>
 
           <label className="flex items-center gap-2 text-sm">
             <input

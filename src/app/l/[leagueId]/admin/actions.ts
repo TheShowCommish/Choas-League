@@ -104,9 +104,21 @@ export async function saveScoringRules(
 
     if (error) return { error: error.message };
 
-    revalidatePath(`/l/${leagueId}/admin`);
+    // A scoring rule is retroactive by nature, so apply it straight away
+    // rather than leaving the league on stale numbers until somebody
+    // remembers to press recompute.
+    const { error: rescoreError } = await supabase.rpc(
+      "recompute_season_scores",
+      { p_league: leagueId },
+    );
+
+    revalidatePath(`/l/${leagueId}`, "layout");
     return {
-      ok: `Saved ${changes.length} scoring rule${changes.length === 1 ? "" : "s"}. Recompute scores to apply them to past weeks.`,
+      ok:
+        `Saved ${changes.length} scoring rule${changes.length === 1 ? "" : "s"}.` +
+        (rescoreError
+          ? ` Scores could not be updated automatically (${rescoreError.message}) -- use "Recompute all weeks".`
+          : " Every week has been rescored."),
     };
   } catch (err) {
     return { error: (err as Error).message };
@@ -225,31 +237,34 @@ export async function recomputeScores(
 
   if (!league) return { error: "League not found." };
 
-  // A scoring change is retroactive, so "all weeks" is the common case.
-  const weeks =
-    week !== null
-      ? [week]
-      : Array.from(
-          { length: Math.max(league.current_week, 1) },
-          (_, i) => i + 1,
-        );
+  // "All weeks" means every week we hold stats for, which is not the
+  // same as 1..current_week: a league created in January sits at week 1
+  // with a whole season behind it.
+  if (week === null) {
+    const { data: weeksScored, error } = await supabase.rpc(
+      "recompute_season_scores",
+      { p_league: leagueId },
+    );
+    if (error) return { error: error.message };
 
-  for (const w of weeks) {
-    const { error } = await supabase.rpc("recompute_week_scores", {
-      p_league: leagueId,
-      p_season: league.season,
-      p_week: w,
-    });
-    if (error) return { error: `Week ${w}: ${error.message}` };
+    revalidatePath(`/l/${leagueId}`, "layout");
+    return {
+      ok:
+        weeksScored === 0
+          ? "No stats for this season yet, so there was nothing to score."
+          : `Rescored ${weeksScored} week${weeksScored === 1 ? "" : "s"}.`,
+    };
   }
 
+  const { error } = await supabase.rpc("recompute_week_scores", {
+    p_league: leagueId,
+    p_season: league.season,
+    p_week: week,
+  });
+  if (error) return { error: `Week ${week}: ${error.message}` };
+
   revalidatePath(`/l/${leagueId}`, "layout");
-  return {
-    ok:
-      weeks.length === 1
-        ? `Week ${weeks[0]} rescored.`
-        : `Rescored ${weeks.length} weeks.`,
-  };
+  return { ok: `Week ${week} rescored.` };
 }
 
 export async function generatePlayoffs(leagueId: string): Promise<AdminResult> {
@@ -289,19 +304,29 @@ export async function setupDraft(
 ): Promise<AdminResult> {
   const supabase = await createClient();
 
-  const type = String(formData.get("type") ?? "snake");
-  const rounds = num(formData, "rounds", 16);
-  const secondsPerPick = num(formData, "seconds_per_pick", 90);
-  const auctionBudget = num(formData, "auction_budget", 200);
-  const randomize = formData.get("randomize") === "on";
-
   // The draft row has to exist and carry its settings before the picks
   // are generated, since the board is built from rounds and order.
   const { data: existing } = await supabase
     .from("drafts")
-    .select("id")
+    .select("id, seconds_per_pick, auction_budget")
     .eq("league_id", leagueId)
     .maybeSingle();
+
+  const type = String(formData.get("type") ?? "snake");
+  const rounds = num(formData, "rounds", 16);
+  // The form only renders the fields belonging to the chosen format, so
+  // an absent field means "leave it alone", not "reset it to default".
+  const secondsPerPick = num(
+    formData,
+    "seconds_per_pick",
+    existing?.seconds_per_pick ?? 90,
+  );
+  const auctionBudget = num(
+    formData,
+    "auction_budget",
+    existing?.auction_budget ?? 200,
+  );
+  const randomize = formData.get("randomize") === "on";
 
   if (existing) {
     const { error } = await supabase

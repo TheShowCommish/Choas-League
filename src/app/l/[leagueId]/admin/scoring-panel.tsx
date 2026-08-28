@@ -38,7 +38,11 @@ export function ScoringPanel({
   );
 
   const [search, setSearch] = useState("");
-  const [showAll, setShowAll] = useState(false);
+  // Defaults to showing everything. Hiding the ~140 stats worth zero
+  // made the catalog look far smaller than it is -- the common first
+  // reaction was that stats like targets or first downs were missing,
+  // when they were simply switched off.
+  const [showAll, setShowAll] = useState(true);
 
   const dirtyKeys = useMemo(
     () =>
@@ -82,7 +86,8 @@ export function ScoringPanel({
       <div className="card space-y-3">
         <p className="muted text-sm">
           Points per unit of each stat. {activeCount} of {stats.length} stats
-          are scoring. Set a stat to 0 to switch it off.
+          are scoring. Set a stat to 0 to switch it off, or untick below to
+          hide everything that is already off.
           {untrackedActive > 0 && (
             <span className="text-negative">
               {" "}
@@ -107,7 +112,7 @@ export function ScoringPanel({
             onChange={(e) => setShowAll(e.target.checked)}
             className="size-4"
           />
-          Show every stat, including ones worth 0
+          Show every stat, including the {stats.length - activeCount} worth 0
         </label>
       </div>
 

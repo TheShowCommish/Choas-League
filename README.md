@@ -40,7 +40,7 @@ so the page never scrolls sideways.
 ### 1. Run the database migrations
 
 In the Supabase dashboard, open **SQL Editor** and run each file in
-`supabase/migrations/` **in filename order**, from `0001` to `0023`.
+`supabase/migrations/` **in filename order**, from `0001` to `0024`.
 Paste one file at a time and run it.
 
 If you have the Supabase CLI linked to the project, this does the same
@@ -57,11 +57,18 @@ migration to a throwaway in-memory Postgres:
 npm run db:verify
 ```
 
-### 2. Turn off email confirmation (optional, but easier)
+### 2. Turn off email confirmation
 
-Supabase dashboard → **Authentication → Providers → Email**. If
-"Confirm email" is on, everyone has to click a link before their first
-sign-in. For a league of friends it is simpler to switch it off.
+Supabase dashboard → **Authentication → Providers → Email** → turn
+**"Confirm email"** off.
+
+Do this before inviting anyone. Supabase's built-in mailer is rate
+limited to a couple of messages an hour on the free tier, so with
+confirmation on, a league signing up together will hit the limit and the
+stragglers simply never receive their link. With it off, `signUp`
+returns a session immediately and the signup page drops the new manager
+straight into the app -- that path is already handled in
+`src/app/signup/page.tsx`, so no code change is needed either way.
 
 ### 3. Environment variables
 
