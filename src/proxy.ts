@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
-
-const PUBLIC_PATHS = ["/login", "/signup", "/auth"];
+import { isPublicPath } from "@/lib/public-paths";
 
 /**
  * Refreshes the Supabase session on every request (access tokens are
@@ -40,7 +39,7 @@ export default async function proxy(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+  const isPublic = isPublicPath(pathname);
 
   if (!user && !isPublic) {
     const url = request.nextUrl.clone();

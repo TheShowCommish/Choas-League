@@ -21,7 +21,11 @@ on:
     # both ride along with the player sync rather than getting a slot.
     - cron: "0 9 * * *"
     # Stats: through the night after each slate, so corrections land.
-    # Mon/Tue/Wed/Fri 04:00, 10:00 and 16:00 UTC.
+    # Mon/Tue/Wed/Fri 04:00, 10:00 and 16:00 UTC. Finalizing matchups
+    # rides along, straight after the stats: it only closes a week once
+    # every game is final with official stats and the last kickoff is 36
+    # hours old, so after a Monday night game that is Wednesday's 16:00
+    # run at the earliest.
     - cron: "0 4,10,16 * * 1,2,3,5"
     # Lineup locks: every 15 minutes on game days (Thu, Sun, Mon ET).
     - cron: "*/15 16-23,0-6 * * 0,1,4,5"
@@ -59,6 +63,7 @@ on:
           - live-scores
           - lock-lineups
           - process-waivers
+          - finalize-weeks
       week:
         description: 'Week for sync-stats ("all" backfills the season)'
         required: false
@@ -79,7 +84,7 @@ jobs:
           else
             case "$SCHEDULE" in
               "0 9 * * *")            echo "jobs=sync-players sync-games sync-adp sync-season-projections" >> "$GITHUB_OUTPUT" ;;
-              "0 4,10,16 * * 1,2,3,5") echo "jobs=sync-stats" >> "$GITHUB_OUTPUT" ;;
+              "0 4,10,16 * * 1,2,3,5") echo "jobs=sync-stats finalize-weeks" >> "$GITHUB_OUTPUT" ;;
               "*/15 16-23,0-6 * * 0,1,4,5") echo "jobs=lock-lineups" >> "$GITHUB_OUTPUT" ;;
               "*/5 17-23,0-6 * * 0,1,5") echo "jobs=live-scores" >> "$GITHUB_OUTPUT" ;;
               "0 * * * *")            echo "jobs=process-waivers" >> "$GITHUB_OUTPUT" ;;
@@ -102,21 +107,36 @@ jobs:
 
           failed=0
           for job in ${{ steps.plan.outputs.jobs }}; do
+            # Freezing results on top of a stat sync that just failed
+            # would lock in stale scores. Leave it for the next run.
+            if [ "$job" = "finalize-weeks" ] && [ "$failed" = 1 ]; then
+              echo "--- $job skipped: an earlier job failed"
+              continue
+            fi
+
             url="$APP_URL/api/cron/$job"
             if { [ "$job" = "sync-stats" ] || [ "$job" = "sync-projections" ]; }                && [ -n "$WEEK" ]; then
               url="$url?week=$WEEK"
             fi
 
             echo "--- $job"
-            # --fail-with-body so a 500 both prints the reason and fails
-            # the step, rather than silently "succeeding".
-            if ! curl --fail-with-body --silent --show-error \
-                      --max-time 600 \
-                      --header "Authorization: Bearer $CRON_SECRET" \
-                      "$url"; then
-              failed=1
-            fi
+            # Anything but a 2xx fails the step, and the body is printed
+            # either way so the reason is in the log. That includes 3xx:
+            # curl's --fail ignores redirects, and a redirect to /login
+            # once let every job "succeed" without running.
+            status=$(curl --silent --show-error \
+                          --max-time 600 \
+                          --output response.txt \
+                          --write-out "%{http_code}" \
+                          --header "Authorization: Bearer $CRON_SECRET" \
+                          "$url") || status=000
+            cat response.txt 2>/dev/null || true
             echo
+            case "$status" in
+              2??) ;;
+              *)   echo "$job failed: HTTP $status" >&2; failed=1 ;;
+            esac
+            rm -f response.txt
           done
 
           exit $failed

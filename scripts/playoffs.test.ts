@@ -11,6 +11,7 @@ import { createTestDb, type TestDb } from "./lib/test-db.ts";
 import {
   SEASON,
   buildLeague,
+  giveStats,
   makePlayer,
   type Fixture,
 } from "./lib/fixtures.ts";
@@ -479,5 +480,299 @@ describe("playoffs", () => {
       [f.leagueId],
     );
     assert.equal(games.length, 2);
+  });
+});
+
+describe("finalizing weeks", () => {
+  /** Starts `playerId` for `teamId` in `week`. */
+  async function start(
+    leagueId: string,
+    teamId: string,
+    playerId: string,
+    week: number,
+  ) {
+    await db.q(
+      `insert into public.lineup_entries
+         (league_id, team_id, season, week, player_id, slot_key)
+       values ($1, $2, $3, $4, $5, 'WR')`,
+      [leagueId, teamId, SEASON, week, playerId],
+    );
+  }
+
+  test("finalizing a week updates the standings with no manual SQL", async () => {
+    const f = await buildLeague(db, "finalize-standings");
+    await db.q("select public.generate_schedule($1)", [f.leagueId]);
+
+    const home = f.teamIds[0];
+    const game = await db.one<{ home_team_id: string; away_team_id: string }>(
+      `select home_team_id, away_team_id from public.matchups
+       where league_id = $1 and week = 1
+         and (home_team_id = $2 or away_team_id = $2)`,
+      [f.leagueId, home],
+    );
+    const opponent =
+      game.home_team_id === home ? game.away_team_id : game.home_team_id;
+
+    const pid = await makePlayer(db, "FIN_STAND_WR", "Finalize Receiver", "WR");
+    await giveStats(db, pid, 1, { receiving_yards: 100 }); // 10 points
+    await start(f.leagueId, home, pid, 1);
+
+    const before = await db.one<{ games_played: number }>(
+      "select games_played from public.standings where team_id = $1",
+      [home],
+    );
+    assert.equal(Number(before.games_played), 0, "nothing counts until final");
+
+    const closed = await db.one<{ n: number }>(
+      "select public.finalize_week($1, $2, 1) as n",
+      [f.leagueId, SEASON],
+    );
+    assert.equal(closed.n, 2, "both week 1 matchups close");
+
+    const rows = await db.q<{
+      team_id: string;
+      wins: number;
+      losses: number;
+      games_played: number;
+      points_for: string;
+    }>(
+      `select team_id, wins, losses, games_played, points_for
+       from public.standings where league_id = $1`,
+      [f.leagueId],
+    );
+    const byTeam = new Map(rows.map((r) => [r.team_id, r]));
+    assert.equal(Number(byTeam.get(home)!.wins), 1);
+    assert.equal(
+      Number(byTeam.get(home)!.points_for),
+      10,
+      "rescored on the way in",
+    );
+    assert.equal(Number(byTeam.get(opponent)!.losses), 1);
+    assert.ok(
+      rows.every((r) => Number(r.games_played) === 1),
+      "every team has exactly one game counted",
+    );
+
+    const week2 = await db.q(
+      "select 1 from public.matchups where league_id = $1 and week = 2 and status = 'final'",
+      [f.leagueId],
+    );
+    assert.equal(week2.length, 0, "week 2 is left alone");
+  });
+
+  test("only the commissioner can finalize a week", async () => {
+    const f = await buildLeague(db, "finalize-auth");
+    await db.q("select public.generate_schedule($1)", [f.leagueId]);
+
+    await db.actAs(f.managers[0]);
+    await assert.rejects(
+      () => db.q("select public.finalize_week($1, $2, 1)", [f.leagueId, SEASON]),
+      /Only the commissioner/,
+    );
+    await db.actAs(f.commish);
+  });
+
+  test("the commissioner cannot finalize a week that has not been played", async () => {
+    const f = await buildLeague(db, "finalize-future");
+    await db.q("select public.generate_schedule($1)", [f.leagueId]);
+
+    // Week 10 has no games at all; week 11 kicks off in the future.
+    await db.q(
+      `insert into public.nfl_games (id, season, week, home_team, away_team, kickoff_at)
+       values ($1, $2, 11, 'KC', 'BUF', now() + interval '3 days')`,
+      [`${SEASON}_11_FIN_FUTURE`, SEASON],
+    );
+
+    for (const week of [10, 11]) {
+      await assert.rejects(
+        () => db.q("select public.finalize_week($1, $2, $3)", [f.leagueId, SEASON, week]),
+        /has not been played yet/,
+        `week ${week} is refused`,
+      );
+    }
+
+    const closed = await db.q(
+      "select 1 from public.matchups where league_id = $1 and status = 'final'",
+      [f.leagueId],
+    );
+    assert.equal(closed.length, 0, "nothing was frozen");
+  });
+
+  test("a two-week matchup stays open after week one, closes after week two, then advances", async () => {
+    const f = await buildLeague(db, "finalize-twoweek");
+    await db.q(
+      "update public.leagues set playoff_teams = 4, playoff_start_week = 15, current_week = 15 where id = $1",
+      [f.leagueId],
+    );
+    await db.q(
+      `insert into public.league_playoff_rounds
+         (league_id, bracket, round_index, weeks)
+       values ($1, 'winners', 1, 2), ($1, 'winners', 2, 1)`,
+      [f.leagueId],
+    );
+    await seedRecords(f, f.teamIds);
+    await db.q("select public.generate_playoffs($1)", [f.leagueId]);
+
+    const semi = await db.one<{ id: string; home_team_id: string }>(
+      `select id, home_team_id from public.matchups
+       where league_id = $1 and is_playoff and away_team_id is not null
+       order by home_team_id limit 1`,
+      [f.leagueId],
+    );
+    const pid = await makePlayer(db, "FIN_TWO_WR", "Two Week Receiver", "WR");
+    await giveStats(db, pid, 15, { receiving_yards: 200 }); // 20
+    await giveStats(db, pid, 16, { receiving_yards: 120 }); // 12
+    await start(f.leagueId, semi.home_team_id, pid, 15);
+    await start(f.leagueId, semi.home_team_id, pid, 16);
+
+    const statuses = async () =>
+      (
+        await db.q<{ status: string }>(
+          "select status from public.matchups where league_id = $1 and is_playoff",
+          [f.leagueId],
+        )
+      ).map((r) => r.status);
+
+    const afterWeek1 = await db.one<{ n: number }>(
+      "select public.finalize_week($1, $2, 15) as n",
+      [f.leagueId, SEASON],
+    );
+    assert.equal(afterWeek1.n, 0, "week 15 is only the first half");
+    assert.ok(
+      (await statuses()).every((s) => s !== "final"),
+      "neither semi-final is closed after one week",
+    );
+    await assert.rejects(
+      () => db.q("select public.advance_playoffs($1, 15)", [f.leagueId]),
+      /not final/,
+      "advancing is still refused mid-round",
+    );
+
+    const afterWeek2 = await db.one<{ n: number }>(
+      "select public.finalize_week($1, $2, 16) as n",
+      [f.leagueId, SEASON],
+    );
+    assert.equal(afterWeek2.n, 2, "both semi-finals close after week 16");
+    assert.ok((await statuses()).every((s) => s === "final"));
+
+    const scored = await db.one<{ home_score: string }>(
+      "select home_score from public.matchups where id = $1",
+      [semi.id],
+    );
+    assert.equal(Number(scored.home_score), 32, "both weeks count");
+
+    // Again, for both weeks: nothing changes.
+    const again = await db.one<{ n: number }>(
+      "select public.finalize_week($1, $2, 16) as n",
+      [f.leagueId, SEASON],
+    );
+    assert.equal(again.n, 0, "a second run closes nothing");
+    await db.q("select public.finalize_week($1, $2, 15)", [f.leagueId, SEASON]);
+    const unchanged = await db.one<{ home_score: string; status: string }>(
+      "select home_score, status from public.matchups where id = $1",
+      [semi.id],
+    );
+    assert.equal(Number(unchanged.home_score), 32);
+    assert.equal(unchanged.status, "final");
+
+    const created = await db.one<{ n: number }>(
+      "select public.advance_playoffs($1, 15) as n",
+      [f.leagueId],
+    );
+    assert.equal(created.n, 1, "the final is created");
+    const final = await db.q(
+      "select 1 from public.matchups where league_id = $1 and is_playoff and week = 17",
+      [f.leagueId],
+    );
+    assert.equal(final.length, 1, "in week 17, after the two-week semi");
+  });
+
+  test("the scheduled job finalizes completed weeks only, and is safe to repeat", async () => {
+    const f = await buildLeague(db, "finalize-cron");
+    await db.q("select public.generate_schedule($1)", [f.leagueId]);
+    await db.q("update public.leagues set status = 'in_season' where id = $1", [
+      f.leagueId,
+    ]);
+
+    // Week 3 runs Thursday to Monday night; week 4 has not started.
+    await db.q(
+      `insert into public.nfl_games
+         (id, season, week, home_team, away_team, kickoff_at, status)
+       values ($1, $4, 3, 'KC', 'BUF', '2026-09-25T00:15:00Z', 'final'),
+              ($2, $4, 3, 'BUF', 'KC', '2026-09-29T00:15:00Z', 'final'),
+              ($3, $4, 4, 'KC', 'BUF', '2026-10-02T00:15:00Z', 'scheduled')`,
+      [`${SEASON}_03_FIN_A`, `${SEASON}_03_FIN_B`, `${SEASON}_04_FIN_A`, SEASON],
+    );
+
+    const job = (asOf: string) =>
+      db.q<{ league_id: string; week: number; closed: number }>(
+        "select * from public.finalize_completed_weeks(interval '36 hours', $1::timestamptz)",
+        [asOf],
+      );
+    const mine = (rows: { league_id: string; week: number; closed: number }[]) =>
+      rows
+        .filter((r) => r.league_id === f.leagueId)
+        .map((r) => [r.week, r.closed]);
+    const finalWeeks = async () =>
+      (
+        await db.q<{ week: number }>(
+          `select distinct week from public.matchups
+           where league_id = $1 and status = 'final' order by week`,
+          [f.leagueId],
+        )
+      ).map((r) => r.week);
+
+    // The jobs run with no user.
+    await db.actAs(null);
+
+    // A browser session is refused outright.
+    await db.q("select set_config('request.jwt.claims', $1, false)", [
+      JSON.stringify({ role: "authenticated" }),
+    ]);
+    await assert.rejects(() => job("2026-10-01T00:00:00Z"), /scheduled jobs/);
+    await db.q("select set_config('request.jwt.claims', '', false)");
+
+    // Monday night's game ended hours ago: too soon.
+    assert.deepEqual(mine(await job("2026-09-29T06:00:00Z")), []);
+    assert.deepEqual(await finalWeeks(), []);
+
+    // Old enough, but only the live feed has reported: the official
+    // numbers (and their corrections) have not landed, so stay open.
+    const pid = await makePlayer(db, "FIN_CRON_WR", "Cron Receiver", "WR");
+    const statLine = (gameId: string, source: "live" | "final") =>
+      db.q(
+        `insert into public.player_game_stats
+           (player_id, game_id, season, week, stats, source)
+         values ($1, $2, $3, 3, '{"receiving_yards": 50}', $4)
+         on conflict (player_id, game_id) do update set source = excluded.source`,
+        [pid, gameId, SEASON, source],
+      );
+    await statLine(`${SEASON}_03_FIN_A`, "live");
+    await statLine(`${SEASON}_03_FIN_B`, "live");
+    assert.deepEqual(mine(await job("2026-09-30T16:00:00Z")), []);
+    assert.deepEqual(await finalWeeks(), [], "live-only stats keep the week open");
+
+    // One game official, the other not yet: still open.
+    await statLine(`${SEASON}_03_FIN_A`, "final");
+    assert.deepEqual(mine(await job("2026-09-30T16:00:00Z")), []);
+    assert.deepEqual(await finalWeeks(), [], "every game needs official stats");
+
+    await statLine(`${SEASON}_03_FIN_B`, "final");
+
+    // Both official and a day and a half on: week 3 closes, week 4 does not.
+    assert.deepEqual(mine(await job("2026-09-30T16:00:00Z")), [[3, 2]]);
+    assert.deepEqual(await finalWeeks(), [3]);
+
+    const standings = await db.q<{ games_played: number }>(
+      "select games_played from public.standings where league_id = $1",
+      [f.leagueId],
+    );
+    assert.ok(standings.every((r) => Number(r.games_played) === 1));
+
+    // Running it again is a no-op.
+    assert.deepEqual(mine(await job("2026-09-30T16:00:00Z")), []);
+    assert.deepEqual(await finalWeeks(), [3]);
+
+    await db.actAs(f.commish);
   });
 });

@@ -196,7 +196,7 @@ export async function saveScoringRules(
         `Saved ${changes.length + removals.length} scoring change${changes.length + removals.length === 1 ? "" : "s"}.` +
         (rescoreError
           ? ` Scores could not be updated automatically (${rescoreError.message}) -- use "Recompute all weeks".`
-          : " Every week has been rescored."),
+          : " Open matchups have been rescored; finalized weeks keep their results."),
     };
   } catch (err) {
     return { error: (err as Error).message };
@@ -427,6 +427,49 @@ export async function advancePlayoffs(
         ? "That was the final. The season is complete."
         : `Next round created: ${data} matchup(s).`,
   };
+}
+
+/**
+ * Close out a week by hand, ahead of (or instead of) the scheduled job.
+ *
+ * Closes the matchups that END in `week`: the first week of a two-week
+ * playoff round closes nothing, by design.
+ */
+export async function finalizeWeek(
+  leagueId: string,
+  week: number,
+): Promise<AdminResult> {
+  if (!Number.isInteger(week) || week < 1) {
+    return { error: "Pick a week to finalize." };
+  }
+
+  try {
+    const supabase = await assertCommissioner(leagueId);
+
+    const { data: league } = await supabase
+      .from("leagues")
+      .select("season")
+      .eq("id", leagueId)
+      .single();
+    if (!league) return { error: "League not found." };
+
+    const { data, error } = await supabase.rpc("finalize_week", {
+      p_league: leagueId,
+      p_season: league.season,
+      p_week: week,
+    });
+    if (error) return { error: `Week ${week}: ${error.message}` };
+
+    revalidatePath(`/l/${leagueId}`, "layout");
+    return {
+      ok:
+        data === 0
+          ? `Nothing to finalize: no open matchup ends in week ${week}.`
+          : `Week ${week} finalized: ${data} matchup(s) closed.`,
+    };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
 }
 
 /** Replace the playoff round configuration in one go. */

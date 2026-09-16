@@ -9,6 +9,7 @@ import {
   advancePlayoffs,
   assignTeamOwner,
   deleteLeague,
+  finalizeWeek,
   generatePlayoffs,
   generateSchedule,
   processWaivers,
@@ -47,6 +48,11 @@ export function ToolsPanel({
   );
 
   const [desiredTeams, setDesiredTeams] = useState(teams.length);
+
+  // The week to close by hand. current_week is only a starting point:
+  // nothing advances it through the regular season, so the commissioner
+  // may well need an earlier or later week.
+  const [finalizeWeekNum, setFinalizeWeekNum] = useState(league.current_week);
 
   // Typed back before the league can be deleted. Held here rather than
   // read off the form on submit so the button can stay disabled until
@@ -113,6 +119,48 @@ export function ToolsPanel({
             )
           }
         />
+
+        <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border/60 pb-3">
+          <div className="min-w-56 flex-1">
+            <p className="text-sm font-medium">Finalize a week</p>
+            <p className="muted text-xs">
+              Rescores and closes the matchups that end in that week, so
+              standings count them. This normally happens on its own once
+              every NFL game that week is final. A two-week playoff matchup
+              only closes when its last week is finalized. A week can be
+              finalized once all its games have kicked off, so only do it
+              after the last game has finished.
+            </p>
+          </div>
+          <div className="flex items-end gap-2">
+            <div>
+              <label className="label" htmlFor="finalize-week">
+                Week
+              </label>
+              <input
+                id="finalize-week"
+                type="number"
+                min={1}
+                max={22}
+                className="input w-20"
+                value={finalizeWeekNum}
+                onChange={(e) => setFinalizeWeekNum(Number(e.target.value))}
+              />
+            </div>
+            <button
+              className="btn btn-sm"
+              disabled={pending || !(finalizeWeekNum >= 1)}
+              onClick={() =>
+                run(
+                  () => finalizeWeek(league.id, finalizeWeekNum),
+                  `Finalize week ${finalizeWeekNum}? Closed matchups are not rescored afterwards.`,
+                )
+              }
+            >
+              Finalize week {finalizeWeekNum}
+            </button>
+          </div>
+        </div>
 
         <Tool
           title="Advance the playoffs"

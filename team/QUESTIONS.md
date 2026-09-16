@@ -104,3 +104,13 @@ Options:
   C) Separate mobile URLs (/m/...) — most duplication, shared links open the wrong interface
 Recommendation: A, because it guarantees identical data with the least to maintain
 Answer:
+
+## Q10 — Should scoring-rule changes rewrite finished weeks?          [OPEN]
+Blocks: nothing (T-006 proceeds with option A); affects live leagues once T-006's migration is applied
+Question: Until now no week was ever "final", so editing a scoring rule silently changed every past result. With T-006, finalized weeks keep their results and rule changes only affect open matchups. Is that what you want?
+Options:
+  A) Finalized weeks are locked; rule changes apply to open/future matchups (how ESPN/Yahoo/Sleeper behave)
+  B) Rule changes rescore everything, including finished weeks and standings
+  C) A, plus a commissioner checkbox "also rescore finished weeks" when saving a rule
+Recommendation: C, because locking is the safe default but your league likes full control
+Answer:
