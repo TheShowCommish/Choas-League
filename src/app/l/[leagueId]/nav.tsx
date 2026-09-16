@@ -4,12 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { useLocalSetting, writeLocalSetting } from "@/lib/use-local-setting";
+import { MobileNav, type MobileNavItem } from "./mobile-nav";
+import type { NavIconName } from "./nav-icons";
 
 interface NavItem {
   href: string;
   label: string;
-  /** Shorter label for the phone bar, where space is tight. */
-  short: string;
+  icon: NavIconName;
+  /** Whether it has a tab of its own in the phone bar, or lives in More. */
+  phoneTab?: boolean;
 }
 
 /** Whether the desktop menu was left open. */
@@ -29,22 +32,33 @@ export function LeagueNav({
   const base = `/l/${leagueId}`;
 
   const items: NavItem[] = [
-    { href: base, label: "Home", short: "Home" },
-    { href: `${base}/my-team`, label: "My Team", short: "Team" },
-    { href: `${base}/matchups`, label: "Matchups", short: "Games" },
-    { href: `${base}/players`, label: "Players", short: "Players" },
-    { href: `${base}/trades`, label: "Trades", short: "Trades" },
-    { href: `${base}/standings`, label: "Standings", short: "Table" },
-    { href: `${base}/transactions`, label: "Transactions", short: "Log" },
-    { href: `${base}/chat`, label: "Chat", short: "Chat" },
+    { href: base, label: "Home", icon: "home", phoneTab: true },
+    { href: `${base}/my-team`, label: "My Team", icon: "team", phoneTab: true },
+    { href: `${base}/matchups`, label: "Matchups", icon: "matchups", phoneTab: true },
+    { href: `${base}/players`, label: "Players", icon: "players", phoneTab: true },
+    { href: `${base}/trades`, label: "Trades", icon: "trades" },
+    { href: `${base}/standings`, label: "Standings", icon: "standings" },
+    { href: `${base}/transactions`, label: "Transactions", icon: "log" },
+    { href: `${base}/chat`, label: "Chat", icon: "chat" },
   ];
 
   if (showDraft) {
-    items.splice(1, 0, { href: `${base}/draft`, label: "Draft", short: "Draft" });
+    items.splice(1, 0, { href: `${base}/draft`, label: "Draft", icon: "draft" });
   }
   if (isCommissioner) {
-    items.push({ href: `${base}/admin`, label: "Admin", short: "Admin" });
+    items.push({ href: `${base}/admin`, label: "Admin", icon: "admin" });
   }
+
+  // The phone bar says "Team" -- "My Team" does not fit a fifth of 320px.
+  const toPhone = (item: NavItem): MobileNavItem => ({
+    href: item.href,
+    label: item.label === "My Team" ? "Team" : item.label,
+    icon: item.icon,
+  });
+  const phonePrimary = items.filter((item) => item.phoneTab).map(toPhone);
+  // Draft sits first in More when it is showing: on draft day it is the
+  // one place everybody is heading. Otherwise the desktop order holds.
+  const phoneSecondary = items.filter((item) => !item.phoneTab).map(toPhone);
 
   const isActive = (href: string) =>
     href === base ? pathname === base : pathname.startsWith(href);
@@ -71,25 +85,12 @@ export function LeagueNav({
 
   return (
     <>
-      {/* Phones: a fixed bar at the bottom, within thumb reach. */}
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface md:hidden">
-        <ul className="flex overflow-x-auto">
-          {items.map((item) => (
-            <li key={item.href} className="flex-1">
-              <Link
-                href={item.href}
-                className={`flex min-h-14 min-w-16 items-center justify-center px-2 text-xs ${
-                  isActive(item.href)
-                    ? "border-t-2 border-accent text-accent"
-                    : "text-muted"
-                }`}
-              >
-                {item.short}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </nav>
+      {/* Phones: four tabs and a More sheet, within thumb reach. */}
+      <MobileNav
+        primary={phonePrimary}
+        secondary={phoneSecondary}
+        isActive={isActive}
+      />
 
       {/* Wider screens: one button that unfolds into the full menu. */}
       <nav className="mx-auto hidden w-full max-w-5xl px-4 pb-1 md:block">

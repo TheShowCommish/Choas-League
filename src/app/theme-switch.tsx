@@ -22,7 +22,14 @@ const OPTIONS: { value: Theme; label: string; title: string }[] = [
  * the value it writes comes from the stored setting, so this component
  * and the boot script are never the source of two different answers.
  */
-export function ThemeSwitch({ className = "" }: { className?: string }) {
+export function ThemeSwitch({
+  className = "",
+  size = "sm",
+}: {
+  className?: string;
+  /** "lg" fills its row with 44px buttons, for the phone's More sheet. */
+  size?: "sm" | "lg";
+}) {
   const theme = useLocalSetting(THEME_STORAGE_KEY, THEMES, "dark");
 
   useEffect(() => {
@@ -31,7 +38,7 @@ export function ThemeSwitch({ className = "" }: { className?: string }) {
 
   return (
     <div
-      className={`inline-flex overflow-hidden rounded-md border border-border ${className}`}
+      className={`${size === "lg" ? "flex w-full" : "inline-flex"} overflow-hidden rounded-md border border-border ${className}`}
       role="group"
       aria-label="Theme"
     >
@@ -42,7 +49,7 @@ export function ThemeSwitch({ className = "" }: { className?: string }) {
           title={option.title}
           aria-pressed={theme === option.value}
           onClick={() => writeLocalSetting(THEME_STORAGE_KEY, option.value)}
-          className={`min-h-9 px-2.5 text-xs font-medium transition-colors ${
+          className={`${size === "lg" ? "min-h-11 flex-1 text-sm" : "min-h-9 text-xs"} px-2.5 font-medium transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent ${
             theme === option.value
               ? "bg-accent text-accent-ink"
               : "bg-surface-2 text-muted hover:text-foreground"

@@ -84,7 +84,9 @@ export default async function LeagueLayout({
             </p>
           </div>
 
-          <div className="flex shrink-0 items-center gap-2">
+          {/* Phones find these in the bottom nav's More sheet instead, and
+              get the header row back for the league name. */}
+          <div className="hidden shrink-0 items-center gap-2 md:flex">
             <ThemeSwitch />
             <form action="/auth/signout" method="post">
               <button className="btn btn-sm">Sign out</button>

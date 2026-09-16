@@ -5,7 +5,7 @@ Only ONE task may be IN PROGRESS / REVIEW / TEST at a time.
 Priority: P0 (core promise in PRODUCT.md) · P1 (parity with ESPN) · P2 (nice to have)
 
 ## Current
-T-017 — IN PROGRESS (designer)
+T-036 — IN PROGRESS (fantasy-expert)
 
 ## Backlog
 | ID | P | Task | Owner | Status | Acceptance criteria |
@@ -19,7 +19,6 @@ T-017 — IN PROGRESS (designer)
 | T-014 | P1 | Custom milestone bonuses: "stat ≥ X → N pts", optionally per position; scored in recompute, shown in breakdown. | engineer→designer | READY | e.g. TE ≥8 rec +4 works; tested |
 | T-015 | P2 | League median scoring (optional extra W/L vs median; standings & seeding include it; off by default). | engineer | READY | Toggle works; tests cover standings + seeding |
 | T-016 | P2 | Scoring admin QoL: ESPN Std/Half/PPR presets, "Add new catalog stats" button (backfill_scoring_rules), override count in tab header. | designer | READY | All three present |
-| T-017 | P0 | Mobile bottom nav redesign: 5 icon+label tabs (Home, Team, Matchups, Players, More→sheet with Trades, Standings, Log, Chat, Draft, Admin, theme, Sign out). | designer | IN PROGRESS | No horizontal nav scroll at 320px; every destination ≤2 taps; targets ≥44px; safe-area inset; theme/Sign out removed from phone header |
 | T-018 | P0 | Desktop shell: permanent tab row at ≥lg (no collapsed Menu); table-heavy pages (Players, Standings, Team, Transactions) widen to max-w-7xl. | designer | READY | Active tab visible; keyboard focus check passes in all themes |
 | T-019 | P1 | Mobile tap-target sweep: nothing <44px on phones (.btn-sm, week tabs, theme switch, pagination); desktop stays compact; replace nonexistent hover:bg-bg token. | designer | READY | Measured ≥44px at mobile preset; desktop unchanged |
 | T-020 | P1 | Live data freshness: realtime/poll refresh for matchup scores, My Team points, Home, trade inbox badge. | engineer→designer | READY | Score change reaches open desktop + mobile tabs within 60s, no reload; one subscription per page |
@@ -37,15 +36,17 @@ T-017 — IN PROGRESS (designer)
 | T-032 | P2 | After a rescore, a final multi-week matchup's stored total can differ from the live per-week columns on matchup detail. Make per-week columns consistent with the stored final (or label them). Also: BoxScore (matchups/[matchupId]/page.tsx:341,349) should use matchupWinner instead of inline compare (disagrees with header on a final bye). | engineer | READY | Weeks always sum to the displayed Total, or a clear note explains the difference; test |
 | T-033 | P1 | Login redirect drops the query string: src/proxy.ts:47 builds `next` from pathname only, so shared links like /matchups/Y?week=16 land on the wrong view after sign-in. | engineer | READY | next= preserves path + query; open-redirect safe (same-origin only); test |
 | T-034 | P2 | Matchup detail polish: single-week view of a final matchup shouldn't read "FINAL" over that week's points; when per-week points fail keep switcher/body consistent with the TOTAL header; "← Week N" back link should return to the week you came from. | engineer→designer | READY | All three behaviours verified |
-| T-036 | P0 | Settings-first audit: find hard-coded league-format assumptions (playoff, seeding, tiebreak, roster, scoring, waiver, trade rules) and propose each as a per-league setting. | fantasy-expert | READY | List of hard-coded behaviours with file refs, each proposed as a setting with a default |
+| T-036 | P0 | Settings-first audit: find hard-coded league-format assumptions (playoff, seeding, tiebreak, roster, scoring, waiver, trade rules) and propose each as a per-league setting. | fantasy-expert | IN PROGRESS | List of hard-coded behaviours with file refs, each proposed as a setting with a default |
 | T-035 | P1 | Per-league setting: whether scoring-rule changes rescore finalized weeks (Q10). Admin scoring save honours it. | engineer→designer | READY | On: finalized matchups rescored and standings update; off: unchanged; tests for both |
 | T-037 | P0 | Split views follow the product principle: desktop = decision making (full stats), mobile = quick actions (fewer stats). Apply to T-021..T-024 acceptance criteria. | Lead | DONE | n/a |
+| T-038 | P2 | Mobile nav polish: tap during the sheet's 200ms slide-in is treated as a backdrop click (mobile-nav.tsx onClick); phoneLabel field instead of label string compare in nav.tsx; header safe-area padding in landscape. | designer | READY | Fast tap after opening More opens the tapped item; label rename safe; no side strips in landscape |
 | T-003 | P1 | Full feature gap analysis vs ESPN, Yahoo, Sleeper. | fantasy-expert | READY | Prioritized list of proposals added to Backlog by Lead |
 | T-005 | P2 | Fix flaky limit in scripts/feeds.test.ts:134-137 (coverage > 3000 can't be reached; pool is ~2707). Tie it to pool size. | engineer | READY | `npm test` 225/225; test still fails if mapping genuinely regresses |
 
 ## Done
 | ID | Task | Commit |
 |----|------|--------|
+| T-017 | Phone nav: 5 icon tabs + More sheet (Trades, Standings, Log, Chat, Draft, Admin, theme, Sign out) | (this commit) |
 | T-009 | Multi-week matchups found on every page; matchup detail Week/Total switcher, per-week box score; ties show no winner | (this commit) |
 | T-006 | Matchups finalize automatically (multi-week aware, in-season leagues, official stats + 36h); commissioner override; cron jobs no longer blocked by login redirect | 3ad6b8d |
 | T-004 | Desktop/mobile audit — app is one responsive layout; 10 tasks + Q9 raised | (docs) |

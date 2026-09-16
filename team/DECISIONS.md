@@ -24,3 +24,4 @@ The executive can reverse any of them. Mark reviewed entries with ✔ in CHECKIN
 | 2026-09-16 | Q3-Q10 | Executive: hosting = Vercel; test on current DB; automate db:push; league formats are per-league settings; unique desktop (decisions) and mobile (quick actions) views; target 2027 season | executive | n/a |
 | 2026-09-16 | Q9 | Architecture A: each page loads data once, renders separate Desktop and Mobile view components chosen by screen width | Lead | yes |
 | 2026-09-16 | T-017 | Keep viewportFit "cover" site-wide (required for iPhone safe-area padding) | designer | yes |
+| 2026-09-16 | T-017 | Phone tabs: Home, Team, Matchups, Players, More; Draft listed first in More when open; sheet is a native dialog | designer | yes |

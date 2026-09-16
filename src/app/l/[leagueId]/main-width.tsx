@@ -23,9 +23,10 @@ export function LeagueMain({ children }: { children: React.ReactNode }) {
   const wide = WIDE_SEGMENTS.some((segment) => pathname.includes(segment));
 
   return (
-    // pb-24 leaves room for the fixed bottom nav on phones.
+    // pb-bottom-nav leaves room for the fixed bottom nav, and the home
+    // indicator under it, on phones.
     <main
-      className={`mx-auto w-full flex-1 px-4 py-5 pb-24 md:pb-8 ${
+      className={`mx-auto w-full flex-1 px-4 py-5 pb-bottom-nav md:pb-8 ${
         wide ? "max-w-none 2xl:px-8" : "max-w-5xl"
       }`}
     >

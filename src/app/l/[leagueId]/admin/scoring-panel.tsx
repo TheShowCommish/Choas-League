@@ -193,7 +193,7 @@ export function ScoringPanel({
 
       {/* Sticky so the save button is reachable without scrolling back up
           through a long list of stats. */}
-      <div className="sticky bottom-20 z-10 md:bottom-4">
+      <div className="sticky bottom-above-nav z-10 md:bottom-4">
         <button
           className="btn btn-primary w-full shadow-lg"
           disabled={pending}

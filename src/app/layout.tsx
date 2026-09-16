@@ -16,6 +16,9 @@ export const viewport: Viewport = {
   initialScale: 1,
   // Phones are the primary target; let people zoom anyway.
   maximumScale: 5,
+  // Draw to the screen edges so env(safe-area-inset-*) reports the home
+  // indicator and notch; the bottom nav and body pad themselves clear.
+  viewportFit: "cover",
   // The browser chrome cannot follow a theme chosen in localStorage, so
   // it stays on the dark default rather than fighting the page.
   themeColor: "#0b0d10",
