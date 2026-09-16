@@ -30,7 +30,7 @@ Give every helper a self-contained prompt: task ID, goal, acceptance criteria, r
   1. **Author:** `engineer` for logic/data, `designer` for UI. For tasks with both, engineer first, then designer.
   2. **Review:** `reviewer`. If CHANGES REQUESTED, send the findings verbatim to the author, then review again. After 2 rounds with must-fix items still open, mark BLOCKED and write a question.
   3. **Test:** `tester`. If FAIL, send the bugs to the author → reviewer → tester again (max 2 loops, then escalate). Minor bugs on a PASS become new P2 tasks.
-  4. **Commit:** stage **only the files this task touched** (never `git add -A`; the tree has unrelated uncommitted work) and commit with message `T-xxx: <summary>`, then `git push origin main` (auto-push approved by the executive). Never force-push; if the push is rejected, write a question and stop pushing.
+  4. **Commit:** stage **only the files this task touched** (never `git add -A`) and commit with message `T-xxx: <summary>`, then `git push origin main` (auto-push approved by the executive). Never force-push; if the push is rejected, write a question and stop pushing.
 - Whenever any helper reports BLOCKED, ESCALATE, or a big decision: write it to QUESTIONS.md in the required format (options + recommendation), mark the task `BLOCKED (Q#)`, and go back to step 1 for other work.
 - Append every small decision the helpers reported to DECISIONS.md (one line each).
 - Move the task to **Done** with its commit hash.

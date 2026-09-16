@@ -36,3 +36,23 @@ Options:
   C) Work on a `team` branch and push there freely; you merge to main when you're happy (Vercel preview URL for each push)
 Recommendation: C, because you get a live preview to glance at without the team ever touching production
 Answer: B — push automatically after testing. (Note: site is on GitHub Pages, not Vercel.)
+
+## Q3 — Hosting: GitHub Pages can't run this app                     [OPEN]
+Blocks: nothing yet (building continues; affects whether pushes actually update a live site)
+Question: The app needs a server (Next.js server actions, Supabase login cookies, /api/cron routes), but GitHub Pages only serves static files. Where should the site run?
+Options:
+  A) Vercel free (Hobby) tier — made by the Next.js team, deploys on every push, no code changes; README already documents it
+  B) Another Node host (Netlify, Render, Cloudflare) — similar, a bit more setup
+  C) Stay on GitHub Pages — requires rewriting the app as static pages + Supabase called straight from the browser; large rewrite, weaker security
+Recommendation: A, because it's free, zero code changes, and auto-push then genuinely updates the live site
+Answer:
+
+## Q4 — A safe database so agents can test logged-in pages           [OPEN]
+Blocks: agent testing of everything behind login (leagues, lineups, draft, admin) — until answered, those land in "Please test by hand"
+Question: Agents can't test logged-in pages without an account and a league, and they must not write to your real Supabase. What should they use?
+Options:
+  A) A second free Supabase project just for testing — you create it once (~5 min) and paste its URL/keys into a `.env.test.local`; agents seed it with `npm run seed:test-league`
+  B) Local Supabase via Docker on this PC — no cloud project, but needs Docker Desktop installed
+  C) Allow a clearly named test league + test accounts in the real database
+Recommendation: A, because it's free, fully isolated from real league data, and needs no installs
+Answer:
