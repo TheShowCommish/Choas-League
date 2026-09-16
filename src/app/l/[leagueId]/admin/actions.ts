@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
 export interface AdminResult {
@@ -436,6 +437,8 @@ export async function savePlayoffRounds(
     round_index: number;
     name: string;
     weeks: number;
+    teams: number | null;
+    byes: number;
   }[],
 ): Promise<AdminResult> {
   try {
@@ -457,6 +460,10 @@ export async function savePlayoffRounds(
           round_index: r.round_index,
           name: r.name.trim(),
           weeks: r.weeks,
+          // Null field size means "however many are still standing",
+          // which is what the bracket did before it could be told.
+          teams: r.teams && r.teams >= 2 ? r.teams : null,
+          byes: Math.max(0, r.byes),
         })),
       );
       if (error) return { error: error.message };
@@ -629,4 +636,55 @@ export async function assignTeamOwner(
 
   revalidatePath(`/l/${leagueId}`, "layout");
   return { ok: "Team owner updated." };
+}
+
+/**
+ * Deletes a league, and with it everything that hangs off one.
+ *
+ * Every table that references a league does so `on delete cascade`, so
+ * this one statement takes the teams, rosters, lineups, matchups, draft,
+ * trades, chat and the whole scoring history with it. There is no undo
+ * and no soft-delete flag to unset afterwards, which is why the caller
+ * has to type the league's name back: a confirm() dialog is one stray
+ * Enter away from ending somebody's season.
+ *
+ * Only the commissioner can do it -- the RLS policy on leagues restricts
+ * delete to commissioner_id, so a member who forged the request gets
+ * zero rows affected rather than a deletion.
+ */
+export async function deleteLeague(
+  leagueId: string,
+  typedName: string,
+): Promise<AdminResult> {
+  try {
+    const supabase = await assertCommissioner(leagueId);
+
+    const { data: league } = await supabase
+      .from("leagues")
+      .select("name")
+      .eq("id", leagueId)
+      .maybeSingle();
+
+    if (!league) return { error: "That league no longer exists." };
+
+    if (typedName.trim() !== league.name) {
+      return {
+        error: `Type the league's name exactly -- "${league.name}" -- to delete it.`,
+      };
+    }
+
+    const { error } = await supabase
+      .from("leagues")
+      .delete()
+      .eq("id", leagueId);
+
+    if (error) return { error: error.message };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
+
+  // Outside the try: redirect works by throwing, and catching it here
+  // would turn a successful deletion into an error message.
+  revalidatePath("/leagues");
+  redirect("/leagues");
 }

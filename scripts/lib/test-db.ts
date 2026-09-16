@@ -73,17 +73,35 @@ export function migrationFiles(): string[] {
     .sort();
 }
 
+/**
+ * An empty database with the Supabase stubs in place and no migrations
+ * applied, for tests that need to apply them themselves -- notably the
+ * one that checks 0010 can be re-run out of order.
+ */
+export async function createBareDb(): Promise<PGlite> {
+  const pg = await PGlite.create({ extensions: { pgcrypto } });
+  await pg.exec("create extension if not exists pgcrypto;");
+  await pg.exec(STUBS);
+  return pg;
+}
+
+/** Applies one migration file by name. */
+export async function applyMigration(
+  pg: PGlite,
+  file: string,
+): Promise<void> {
+  await pg.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+}
+
 export async function createTestDb(
   options: { enforceRls?: boolean } = {},
 ): Promise<TestDb> {
   const enforceRls = options.enforceRls ?? false;
 
-  const pg = await PGlite.create({ extensions: { pgcrypto } });
-  await pg.exec("create extension if not exists pgcrypto;");
-  await pg.exec(STUBS);
+  const pg = await createBareDb();
 
   for (const file of migrationFiles()) {
-    await pg.exec(readFileSync(join(MIGRATIONS_DIR, file), "utf8"));
+    await applyMigration(pg, file);
   }
 
   if (enforceRls) {

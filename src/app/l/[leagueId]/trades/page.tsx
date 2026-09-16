@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Trade } from "@/lib/types";
 import type { ValuedPlayer } from "@/lib/trade-finder";
 import { TradeTabs } from "./tabs";
+import { positionLabel } from "@/lib/roster-slots";
 
 export interface TradeItemRow {
   id: string;
@@ -88,7 +89,7 @@ export default async function TradesPage({
   const playerNames = Object.fromEntries(
     (players ?? []).map((p) => [
       p.id as string,
-      `${p.full_name}${p.position ? ` (${p.position})` : ""}`,
+      `${p.full_name}${p.position ? ` (${positionLabel(p.position)})` : ""}`,
     ]),
   );
 
@@ -109,7 +110,7 @@ export default async function TradesPage({
               team.id,
               roster.map((r) => ({
                 playerId: r.playerId,
-                label: `${r.player.full_name} (${r.player.position ?? "?"})`,
+                label: `${r.player.full_name} (${positionLabel(r.player.position)})`,
               })),
             ] as const;
           }),

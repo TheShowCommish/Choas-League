@@ -3,12 +3,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+import { useLocalSetting, writeLocalSetting } from "@/lib/use-local-setting";
+
 interface NavItem {
   href: string;
   label: string;
   /** Shorter label for the phone bar, where space is tight. */
   short: string;
 }
+
+/** Whether the desktop menu was left open. */
+const STORAGE_KEY = "chaos-nav-open";
+const OPEN_VALUES = ["0", "1"] as const;
 
 export function LeagueNav({
   leagueId,
@@ -43,6 +49,26 @@ export function LeagueNav({
   const isActive = (href: string) =>
     href === base ? pathname === base : pathname.startsWith(href);
 
+  /*
+   * The desktop menu starts closed and remembers being opened.
+   *
+   * A row of ten tabs is a permanent band across the top of every page,
+   * and on a laptop that band is a real fraction of what is left for
+   * the standings table underneath it. Closed, the whole thing is one
+   * button wearing the name of the page you are on.
+   *
+   * Closed is also what the server renders, so a menu somebody left open
+   * unfolds on hydration rather than the other way round -- content
+   * moving down the page is far less jarring than content snapping up.
+   */
+  const open = useLocalSetting(STORAGE_KEY, OPEN_VALUES, "0") === "1";
+
+  function toggle() {
+    writeLocalSetting(STORAGE_KEY, open ? "0" : "1");
+  }
+
+  const current = items.find((item) => isActive(item.href));
+
   return (
     <>
       {/* Phones: a fixed bar at the bottom, within thumb reach. */}
@@ -65,24 +91,42 @@ export function LeagueNav({
         </ul>
       </nav>
 
-      {/* Wider screens: a normal horizontal nav under the header. */}
-      <nav className="mx-auto hidden w-full max-w-5xl px-4 md:block">
-        <ul className="flex gap-1 overflow-x-auto">
-          {items.map((item) => (
-            <li key={item.href}>
-              <Link
-                href={item.href}
-                className={`inline-block border-b-2 px-3 py-2 text-sm whitespace-nowrap ${
-                  isActive(item.href)
-                    ? "border-accent text-accent"
-                    : "border-transparent text-muted hover:text-foreground"
-                }`}
-              >
-                {item.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
+      {/* Wider screens: one button that unfolds into the full menu. */}
+      <nav className="mx-auto hidden w-full max-w-5xl px-4 pb-1 md:block">
+        <button
+          type="button"
+          onClick={toggle}
+          aria-expanded={open}
+          aria-controls="league-menu"
+          className="inline-flex min-h-9 items-center gap-2 rounded-md px-2 text-sm text-muted hover:text-foreground"
+        >
+          <span aria-hidden className="text-base leading-none">
+            {open ? "\u00d7" : "\u2630"}
+          </span>
+          <span className="font-medium text-foreground">
+            {current?.label ?? "Menu"}
+          </span>
+          <span className="muted text-xs">{open ? "Hide menu" : "Menu"}</span>
+        </button>
+
+        {open && (
+          <ul id="league-menu" className="flex flex-wrap gap-1 pb-1">
+            {items.map((item) => (
+              <li key={item.href}>
+                <Link
+                  href={item.href}
+                  className={`inline-block border-b-2 px-3 py-2 text-sm whitespace-nowrap ${
+                    isActive(item.href)
+                      ? "border-accent text-accent"
+                      : "border-transparent text-muted hover:text-foreground"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </nav>
     </>
   );

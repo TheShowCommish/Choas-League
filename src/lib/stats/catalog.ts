@@ -15,8 +15,21 @@
  *            because averaging across games is not the same as summing.
  */
 
-export type StatAppliesTo = "player" | "team_defense";
+export type StatAppliesTo = "player" | "team_defense" | "team_offense";
 export type StatValueType = "count" | "flag" | "rate";
+
+/**
+ * Every legal applies_to value, as data rather than only as a type.
+ *
+ * The generated seed emits the database's check constraint from this,
+ * so adding a kind of thing stats can describe is a catalog edit rather
+ * than a catalog edit plus a migration somebody has to remember.
+ */
+export const STAT_APPLIES_TO: StatAppliesTo[] = [
+  "player",
+  "team_defense",
+  "team_offense",
+];
 
 /**
  * Where a stat comes from. All of these are ingested, except for the
@@ -157,6 +170,18 @@ const SOURCE_OVERRIDES: Record<string, StatSource> = Object.fromEntries([
     "dst_three_and_outs",
     "dst_fourth_down_stops",
     "dst_first_downs_allowed",
+
+    // The offensive line's plays: pressure taken, runs stopped at the
+    // line, and the flags a line throws. None of these are in any
+    // weekly team release.
+    "ol_qb_hits_allowed",
+    "ol_stuffs_allowed",
+    "ol_third_down_conversions",
+    "ol_red_zone_tds",
+    "ol_penalties",
+    "ol_false_starts",
+    "ol_holding_penalties",
+    "ol_offensive_snaps",
   ].map((k) => [k, "pbp" as StatSource]),
 ]);
 
@@ -179,7 +204,7 @@ function group(
   return rows.map(([key, label, description, valueType, defaultPoints]) => {
     const source =
       SOURCE_OVERRIDES[key] ??
-      (appliesTo === "team_defense" ? "team" : "player");
+      (appliesTo === "player" ? "player" : "team");
 
     return {
       key,
@@ -457,6 +482,53 @@ const TEAM_DEFENSE = group("Team Defense / ST", "team_defense", [
   ["dst_ya_450_plus", "Yards Allowed: 450+", "Bonus tier for 450 or more yards allowed.", "flag", 0],
 ]);
 
+// ---------------------------------------------------------------------------
+// Team offensive line (the O-Line slot)
+//
+// An offensive line is a pseudo-player with id OL_<abbr> and position
+// 'OL', exactly as a D/ST is DST_<abbr> and 'DEF'. Drafting "NYG O-Line"
+// therefore travels the same roster, lineup, waiver and trade path as
+// drafting a wide receiver.
+//
+// Nobody publishes an offensive line box score, so these are the team's
+// own numbers read from the line's point of view: what the run game
+// produced, and what the pass rush was allowed to do to the quarterback.
+// ---------------------------------------------------------------------------
+const TEAM_OFFENSE = group("Team O-Line", "team_offense", [
+  ["ol_sacks_allowed", "Sacks Allowed", "Sacks the quarterback took.", "count", -1],
+  ["ol_sack_yards_allowed", "Sack Yards Allowed", "Yards lost on those sacks.", "count", -0.1],
+  ["ol_qb_hits_allowed", "QB Hits Allowed", "Hits taken by the quarterback.", "count", -0.25],
+  ["ol_dropbacks", "Pass Blocks", "Dropbacks blocked: attempts plus sacks.", "count", 0],
+  ["ol_pressure_free_rate", "Clean Pocket Rate", "Share of dropbacks with no sack or hit.", "rate", 0],
+
+  ["ol_rush_attempts", "Rush Attempts", "Carries the line blocked for.", "count", 0],
+  ["ol_rushing_yards", "Rushing Yards", "Team rushing yards.", "count", 0.05],
+  ["ol_rushing_tds", "Rushing TDs", "Team rushing touchdowns.", "count", 2],
+  ["ol_yards_per_carry", "Yards Per Carry", "Team rushing average.", "rate", 0],
+  ["ol_stuffs_allowed", "Runs Stuffed", "Carries stopped at or behind the line.", "count", -0.5],
+
+  ["ol_passing_yards", "Passing Yards", "Team passing yards.", "count", 0.01],
+  ["ol_passing_tds", "Passing TDs", "Team passing touchdowns.", "count", 1],
+  ["ol_first_downs", "First Downs", "Team first downs gained.", "count", 0.25],
+  ["ol_third_down_conversions", "Third Downs Converted", "Third downs the offense moved the chains on.", "count", 0.5],
+  ["ol_red_zone_tds", "Red Zone TDs", "Touchdowns scored from inside the twenty.", "count", 1],
+  ["ol_points_scored", "Points Scored", "Points the offense put up.", "count", 0],
+  ["ol_offensive_snaps", "Offensive Snaps", "Snaps the line played.", "count", 0],
+
+  ["ol_penalties", "Line Penalties", "Holding, false start and illegal formation flags.", "count", -1],
+  ["ol_false_starts", "False Starts", "False start penalties.", "count", 0],
+  ["ol_holding_penalties", "Holding Penalties", "Offensive holding penalties.", "count", 0],
+
+  ["ol_no_sacks_allowed", "Clean Sheet", "The quarterback was not sacked once.", "flag", 5],
+  ["ol_sacks_allowed_1_2", "Sacks Allowed: 1-2", "Bonus tier for one or two sacks allowed.", "flag", 2],
+  ["ol_sacks_allowed_3_4", "Sacks Allowed: 3-4", "Bonus tier for three or four sacks allowed.", "flag", 0],
+  ["ol_sacks_allowed_5_plus", "Sacks Allowed: 5+", "Bonus tier for five or more sacks allowed.", "flag", -3],
+
+  ["ol_rush_100_bonus", "100 Rushing Yards", "The run game reached 100 yards.", "flag", 1],
+  ["ol_rush_150_bonus", "150 Rushing Yards", "The run game reached 150 yards.", "flag", 2],
+  ["ol_rush_200_bonus", "200 Rushing Yards", "The run game reached 200 yards.", "flag", 3],
+]);
+
 export const STAT_CATALOG: StatDefinition[] = [
   ...PASSING,
   ...RUSHING,
@@ -467,6 +539,7 @@ export const STAT_CATALOG: StatDefinition[] = [
   ...MISC_OFFENSE,
   ...DEFENSE_IDP,
   ...TEAM_DEFENSE,
+  ...TEAM_OFFENSE,
 ];
 
 export const STAT_CATEGORIES = Array.from(

@@ -17,6 +17,11 @@ import {
   type EspnBoxScore,
   type EspnGame,
 } from "../src/lib/ingest/espn.ts";
+import {
+  adpIsMeaningful,
+  fetchEspnAdp,
+  type AdpEntry,
+} from "../src/lib/ingest/espn-adp.ts";
 import { STAT_BY_KEY } from "../src/lib/stats/catalog.ts";
 
 // Jaguars at Bengals, week 2 of 2025: Cincinnati won 31-27.
@@ -157,5 +162,83 @@ describe("espn live scoring", () => {
         assert.notEqual(value, 0, `${id} stored ${key} as zero`);
       }
     }
+  });
+});
+
+
+describe("espn draft order", () => {
+  test("a flat ADP is recognised as the placeholder it is", () => {
+    // What ESPN actually returns outside draft season: the same number
+    // for everybody. Checked against the live service, which gave 170
+    // for all 400 of the top players.
+    const placeholder = Array.from({ length: 400 }, () => 170);
+    assert.equal(
+      adpIsMeaningful(placeholder),
+      false,
+      "400 players sharing one ADP is not an ordering",
+    );
+
+    // And what it returns while people are drafting.
+    const real = Array.from({ length: 400 }, (_, i) => 1 + i * 0.37);
+    assert.equal(adpIsMeaningful(real), true);
+
+    assert.equal(adpIsMeaningful([]), false, "nothing at all is not an ADP");
+    assert.equal(
+      adpIsMeaningful([null, null, null]),
+      false,
+      "nor is a column of nulls",
+    );
+  });
+
+  describe("against the live service", () => {
+    let entries: AdpEntry[] = [];
+    let reachable = true;
+
+    before(async () => {
+      try {
+        entries = await fetchEspnAdp(2025, 300);
+      } catch (err) {
+        console.warn(`ESPN unreachable, skipping: ${(err as Error).message}`);
+        reachable = false;
+      }
+    });
+
+    test("comes back ordered, whichever number it had to use", (t) => {
+      if (!reachable) return t.skip("ESPN unreachable");
+
+      assert.ok(entries.length > 100, "expected a few hundred players");
+
+      // The load-bearing assertion. A board is worthless if this is a
+      // run of identical values, which is exactly what the raw ADP
+      // field is most of the year.
+      const distinct = new Set(entries.map((e) => e.adp)).size;
+      assert.ok(
+        distinct > entries.length / 2,
+        `expected a real ordering, got ${distinct} distinct values ` +
+          `across ${entries.length} players`,
+      );
+
+      assert.deepEqual(
+        entries.map((e) => e.rank),
+        entries.map((_, i) => i + 1),
+        "ranks are 1..n in the stored order",
+      );
+    });
+
+    test("team defenses are matched by team, not by athlete id", (t) => {
+      if (!reachable) return t.skip("ESPN unreachable");
+
+      const defenses = entries.filter((e) => e.defenseTeam !== null);
+      assert.ok(defenses.length > 0, "expected some D/ST rows");
+      assert.ok(
+        defenses.every((d) => d.espnId === null),
+        "a defense has no athlete id to match on",
+      );
+      // Abbreviations have to be nflverse's, or DST_<abbr> finds nothing.
+      assert.ok(
+        defenses.every((d) => /^[A-Z]{2,3}$/.test(d.defenseTeam!)),
+        "team abbreviations look like nflverse abbreviations",
+      );
+    });
   });
 });

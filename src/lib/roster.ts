@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 import type { NflGame, NflPlayer, ScoreBreakdownEntry } from "@/lib/types";
+import { positionRank } from "@/lib/roster-slots";
 
 /** One rostered player, with everything the roster views need to show. */
 export interface RosterEntry {
@@ -116,13 +117,10 @@ export async function getTeamRoster(
     .sort(sortRoster);
 }
 
-const POSITION_ORDER = ["QB", "RB", "WR", "TE", "K", "DEF", "DL", "LB", "DB"];
-
 /** Position order first, then name -- the order a roster reads best in. */
 function sortRoster(a: RosterEntry, b: RosterEntry): number {
-  const ai = POSITION_ORDER.indexOf(a.player.position ?? "");
-  const bi = POSITION_ORDER.indexOf(b.player.position ?? "");
-  const aRank = ai === -1 ? POSITION_ORDER.length : ai;
-  const bRank = bi === -1 ? POSITION_ORDER.length : bi;
-  return aRank - bRank || a.player.full_name.localeCompare(b.player.full_name);
+  return (
+    positionRank(a.player.position) - positionRank(b.player.position) ||
+    a.player.full_name.localeCompare(b.player.full_name)
+  );
 }

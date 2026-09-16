@@ -293,6 +293,58 @@ export function mapTeamDefense(
   });
 }
 
+/**
+ * The offensive line's line, from its team's weekly row.
+ *
+ * Nobody publishes an offensive line box score. What is published is
+ * what the offense did, and for the run game and pass protection that
+ * is very nearly the same question: yards on the ground, and how often
+ * the quarterback ended up on it.
+ *
+ * Points scored comes from the game rather than this row, so the caller
+ * supplies it -- the same arrangement as mapTeamDefense.
+ *
+ * QB hits, stuffs, penalties and snaps are not here: they come off
+ * individual plays and are folded in from the play-by-play pass.
+ */
+export function mapTeamOffense(
+  row: CsvRow,
+  scored: { points: number },
+): StatMap {
+  const sacks = n(row, "sacks_suffered");
+  const attempts = n(row, "attempts");
+  const carries = n(row, "carries");
+  const rushYards = n(row, "rushing_yards");
+
+  return compact({
+    ol_sacks_allowed: sacks,
+    ol_sack_yards_allowed: n(row, "sack_yards_lost"),
+    ol_dropbacks: attempts + sacks,
+
+    ol_rush_attempts: carries,
+    ol_rushing_yards: rushYards,
+    ol_rushing_tds: n(row, "rushing_tds"),
+    ol_yards_per_carry: ratio(rushYards, carries),
+
+    ol_passing_yards: n(row, "passing_yards"),
+    ol_passing_tds: n(row, "passing_tds"),
+    ol_first_downs:
+      n(row, "passing_first_downs") + n(row, "rushing_first_downs"),
+    ol_points_scored: scored.points,
+
+    // Sacks allowed, tiered, so a points-per-unit rule can express
+    // "five points for keeping him clean".
+    ol_no_sacks_allowed: flag(sacks === 0),
+    ol_sacks_allowed_1_2: flag(sacks >= 1 && sacks <= 2),
+    ol_sacks_allowed_3_4: flag(sacks >= 3 && sacks <= 4),
+    ol_sacks_allowed_5_plus: flag(sacks >= 5),
+
+    ol_rush_100_bonus: flag(rushYards >= 100),
+    ol_rush_150_bonus: flag(rushYards >= 150),
+    ol_rush_200_bonus: flag(rushYards >= 200),
+  });
+}
+
 /** Snap counts, keyed by pfr_player_id in the source file. */
 export function mapSnapCounts(row: CsvRow): StatMap {
   return compact({

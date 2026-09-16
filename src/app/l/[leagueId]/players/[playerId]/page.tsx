@@ -3,9 +3,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getLeagueContext } from "@/lib/league";
 import { createClient } from "@/lib/supabase/server";
-import { fetchPlayerNews } from "@/lib/research/news";
+import { describeInjury, INJURY_CLASS, type InjurySummary } from "@/lib/injury";
+import {
+  fetchPlayerResearch,
+  type NewsItem,
+  type PlayerBlurb,
+} from "@/lib/research/news";
 import { STAT_BY_KEY } from "@/lib/stats/catalog";
 import type { NflPlayer, ScoreBreakdownEntry } from "@/lib/types";
+import { positionLabel } from "@/lib/roster-slots";
 
 interface WeekRow {
   week: number;
@@ -18,6 +24,15 @@ interface RawStatRow {
   week: number;
   stats: Record<string, number>;
   source: string;
+}
+
+/** One stat, and where this player sits at his position in it. */
+interface StatRank {
+  stat_key: string;
+  total: number;
+  rank: number;
+  /** How many players at the position recorded the stat at all. */
+  pool: number;
 }
 
 export default async function PlayerPage({
@@ -88,7 +103,8 @@ export default async function PlayerPage({
   // malformed select looks exactly like a bad URL.
   // Both of these are best-effort: an unofficial third-party API is not
   // allowed to decide whether this page renders.
-  const [projectedPoints, projection] = await Promise.all([
+  const [projectedPoints, projection, seasonProjection, statRanks] =
+    await Promise.all([
     isLeagueSeason
       ? supabase
           .rpc("projected_points", {
@@ -107,6 +123,25 @@ export default async function PlayerPage({
       .eq("week", league.current_week)
       .maybeSingle()
       .then((r) => r.data),
+    isLeagueSeason
+      ? supabase
+          .rpc("league_season_projection", {
+            p_league: leagueId,
+            p_season: season,
+          })
+          .then((r) =>
+            r.error
+              ? null
+              : ((r.data as { player_id: string; points: number }[]).find(
+                  (row) => row.player_id === playerId,
+                )?.points ?? null),
+          )
+      : Promise.resolve(null),
+    // Where he sits at his own position in each stat. Best-effort like
+    // the rest: a stat table without ranks is still a stat table.
+    supabase
+      .rpc("player_stat_ranks", { p_player: playerId, p_season: season })
+      .then((r) => (r.error ? [] : (r.data as StatRank[]))),
   ]);
 
   if (playerError) {
@@ -115,14 +150,33 @@ export default async function PlayerPage({
   if (!player) notFound();
 
   const p = player as NflPlayer;
-  const news = await fetchPlayerNews(p.espn_id);
+  const { news, blurb } = await fetchPlayerResearch(p.espn_id);
   const weeks = (scores ?? []) as WeekRow[];
   const rawByWeek = new Map(
     ((raw ?? []) as RawStatRow[]).map((r) => [r.week, r.stats]),
   );
 
+  /*
+   * What is wrong with him.
+   *
+   * The injury job is the first choice: it carries the body part and the
+   * practice report, which is what turns a designation into a decision.
+   * The weekly projection's status is the fallback for a player the job
+   * has not reached yet -- it is only a word, but a word is better than
+   * a silent page next to a man who is on injured reserve.
+   */
+  const injury: InjurySummary | null =
+    describeInjury(p) ??
+    (projection?.injury_status
+      ? describeInjury({ injury_status: projection.injury_status as string })
+      : null);
+
   const total = weeks.reduce((sum, w) => sum + Number(w.points), 0);
   const ownerName = (owner?.teams as unknown as { name: string } | null)?.name;
+
+  const rankByStat = new Map(
+    (statRanks ?? []).map((r) => [r.stat_key, r] as const),
+  );
 
   // Every stat this player has recorded all season, most productive first.
   const seasonTotals = new Map<string, number>();
@@ -154,9 +208,23 @@ export default async function PlayerPage({
           )}
 
           <div className="min-w-0">
-            <h1 className="h1">{p.full_name}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="h1">{p.full_name}</h1>
+              {injury && (
+                <span
+                  className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-semibold ${
+                    INJURY_CLASS[injury.tone]
+                  }`}
+                >
+                  {injury.label}
+                  {injury.bodyPart && (
+                    <span className="font-normal">· {injury.bodyPart}</span>
+                  )}
+                </span>
+              )}
+            </div>
             <p className="muted">
-              {p.position ?? "?"} &middot; {p.team_abbr ?? "Free agent"}
+              {positionLabel(p.position)} &middot; {p.team_abbr ?? "Free agent"}
               {p.jersey_number != null && <> &middot; #{p.jersey_number}</>}
               {ownerName ? (
                 <> &middot; rostered by {ownerName}</>
@@ -191,123 +259,112 @@ export default async function PlayerPage({
         </p>
       )}
 
-      <div className="card flex flex-wrap gap-4">
-        <Stat label="Season points" value={total.toFixed(1)} />
-        <Stat label="Games" value={String(weeks.length)} />
-        <Stat
-          label="Average"
-          value={weeks.length ? (total / weeks.length).toFixed(1) : "0.0"}
-        />
-        <Stat
-          label="Best week"
-          value={
-            weeks.length
-              ? Math.max(...weeks.map((w) => Number(w.points))).toFixed(1)
-              : "0.0"
-          }
-        />
-      </div>
-
-      {(projection || projectedPoints !== null) && (
-        <section className="card space-y-2">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h2 className="h2">Week {league.current_week} projection</h2>
-            {projectedPoints !== null && (
-              <span className="text-lg font-semibold tabular-nums">
-                {Number(projectedPoints).toFixed(1)} pts
-              </span>
+      {/*
+        Stats across the top, news down the right, the full stat table at
+        the bottom. The numbers are what the page is for, so they get the
+        width; the news is a column you glance at, so it gets a column.
+      */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
+        <div className="space-y-5">
+          <div className="card flex flex-wrap gap-4">
+            <Stat label="Season points" value={total.toFixed(1)} />
+            <Stat label="Games" value={String(weeks.length)} />
+            <Stat
+              label="Average"
+              value={weeks.length ? (total / weeks.length).toFixed(1) : "0.0"}
+            />
+            <Stat
+              label="Best week"
+              value={
+                weeks.length
+                  ? Math.max(...weeks.map((w) => Number(w.points))).toFixed(1)
+                  : "0.0"
+              }
+            />
+            {seasonProjection !== null && (
+              <Stat
+                label={`${season} projected`}
+                value={Number(seasonProjection).toFixed(0)}
+              />
             )}
           </div>
 
-          <p className="muted text-sm">
-            Sleeper&rsquo;s projected stat line, scored with this
-            league&rsquo;s rules rather than theirs
-            {projection?.opponent ? ` · vs ${projection.opponent}` : ""}.
-          </p>
+          {(projection || projectedPoints !== null) && (
+            <section className="card space-y-2">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <h2 className="h2">Week {league.current_week} projection</h2>
+                {projectedPoints !== null && (
+                  <span className="text-lg font-semibold tabular-nums">
+                    {Number(projectedPoints).toFixed(1)} pts
+                  </span>
+                )}
+              </div>
 
-          {projection?.injury_status && (
-            <p className="text-negative text-sm font-medium">
-              {projection.injury_status}
-            </p>
+              <p className="muted text-sm">
+                Sleeper&rsquo;s projected stat line, scored with this
+                league&rsquo;s rules rather than theirs
+                {projection?.opponent ? ` · vs ${projection.opponent}` : ""}.
+              </p>
+
+              {projection?.stats && (
+                <p className="muted text-xs">
+                  {Object.entries(projection.stats as Record<string, number>)
+                    .sort((a, b) => b[1] - a[1])
+                    .map(
+                      ([key, value]) =>
+                        `${STAT_BY_KEY[key]?.label ?? key} ${round(value)}`,
+                    )
+                    .join(" · ")}
+                </p>
+              )}
+            </section>
           )}
 
-          {projection?.stats && (
-            <p className="muted text-xs">
-              {Object.entries(projection.stats as Record<string, number>)
-                .sort((a, b) => b[1] - a[1])
-                .map(
-                  ([key, value]) =>
-                    `${STAT_BY_KEY[key]?.label ?? key} ${round(value)}`,
-                )
-                .join(" · ")}
-            </p>
-          )}
-        </section>
-      )}
+          <section>
+            <h2 className="h2 mb-2">Week by week</h2>
+            {weeks.length === 0 ? (
+              <p className="card muted">
+                {isLeagueSeason
+                  ? "No scored games yet this season."
+                  : `No scored games for ${season}.`}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {weeks.map((w) => (
+                  <WeekCard
+                    key={w.week}
+                    week={w}
+                    rawStats={rawByWeek.get(w.week) ?? {}}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
 
-      {news.length > 0 && (
-        <section>
-          <h2 className="h2 mb-2">News</h2>
-          <ul className="card-tight divide-y divide-border/60">
-            {news.map((item) => (
-              <li key={item.id} className="p-3">
-                {item.url ? (
-                  <a
-                    href={item.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-sm font-medium hover:text-accent"
-                  >
-                    {item.headline}
-                  </a>
-                ) : (
-                  <p className="text-sm font-medium">{item.headline}</p>
-                )}
-                {item.description && (
-                  <p className="muted mt-1 text-xs">{item.description}</p>
-                )}
-                {item.published && (
-                  <time className="muted text-xs" dateTime={item.published}>
-                    {new Date(item.published).toLocaleDateString(undefined, {
-                      month: "short",
-                      day: "numeric",
-                      year: "numeric",
-                    })}
-                  </time>
-                )}
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
+        <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start">
+          {injury && <InjuryCard injury={injury} blurb={blurb} />}
 
-      <section>
-        <h2 className="h2 mb-2">Week by week</h2>
-        {weeks.length === 0 ? (
-          <p className="card muted">
-            {isLeagueSeason
-              ? "No scored games yet this season."
-              : `No scored games for ${season}.`}
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {weeks.map((w) => (
-              <WeekCard
-                key={w.week}
-                week={w}
-                rawStats={rawByWeek.get(w.week) ?? {}}
-              />
-            ))}
-          </div>
-        )}
-      </section>
+          <section>
+            <h2 className="h2 mb-2">{p.full_name.split(" ").pop()} news</h2>
+            {news.length === 0 ? (
+              <p className="card muted text-sm">
+                Nothing filed about him lately.
+              </p>
+            ) : (
+              <NewsList news={news} />
+            )}
+          </section>
+        </aside>
+      </div>
 
       {seasonTotals.size > 0 && (
         <section>
           <h2 className="h2 mb-2">{season} stat totals</h2>
           <p className="muted mb-2 text-sm">
             Everything recorded for this player, whether or not your league
-            scores it.
+            scores it. The rank is against everyone at{" "}
+            {positionLabel(p.position)} who recorded the same stat.
           </p>
           <div className="card-tight table-scroll">
             <table className="table">
@@ -315,6 +372,9 @@ export default async function PlayerPage({
                 <tr>
                   <th>Stat</th>
                   <th className="text-right">Total</th>
+                  <th className="text-right">
+                    {positionLabel(p.position)} rank
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -332,6 +392,9 @@ export default async function PlayerPage({
                       <td className="text-right tabular-nums">
                         {round(value)}
                       </td>
+                      <td className="text-right">
+                        <PositionRank rank={rankByStat.get(key)} />
+                      </td>
                     </tr>
                   ))}
               </tbody>
@@ -341,6 +404,123 @@ export default async function PlayerPage({
       )}
     </div>
   );
+}
+
+/**
+ * The injury, spelled out.
+ *
+ * A designation on its own does not answer the question a manager
+ * actually has, which is whether to go looking for a replacement. So
+ * this says three things in order: what the designation means for
+ * availability, what is hurt and how the week's practice has gone, and
+ * -- when there is one -- the beat writer's line on the timeline, which
+ * is the only place "back for week one" ever comes from.
+ */
+function InjuryCard({
+  injury,
+  blurb,
+}: {
+  injury: InjurySummary;
+  blurb: PlayerBlurb | null;
+}) {
+  return (
+    <section
+      // The tone classes carry their own border and tint; card-tight's
+      // own colours sit in the components layer and are overridden by
+      // them, so adding a background here would only fight them.
+      className={`card-tight p-3 ${INJURY_CLASS[injury.tone]}`}
+    >
+      <div className="flex items-baseline gap-2">
+        <h2 className="text-sm font-semibold">
+          {injury.label}
+          {injury.bodyPart && ` · ${injury.bodyPart}`}
+        </h2>
+      </div>
+
+      <p className="mt-1 text-sm text-foreground">{injury.outlook}</p>
+
+      {injury.practice && (
+        <p className="muted mt-1 text-xs">Practice: {injury.practice}</p>
+      )}
+      {injury.notes && (
+        <p className="muted mt-1 text-xs">{injury.notes}</p>
+      )}
+
+      {blurb && (
+        <div className="mt-3 border-t border-border/60 pt-2">
+          <p className="text-xs font-medium text-foreground">
+            {blurb.headline}
+          </p>
+          {blurb.story && (
+            <p className="muted mt-1 text-xs">{blurb.story}</p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function NewsList({ news }: { news: NewsItem[] }) {
+  return (
+    <ul className="card-tight divide-y divide-border/60">
+      {news.map((item) => (
+        <li key={item.id} className="p-3">
+          {item.url ? (
+            <a
+              href={item.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium hover:text-accent"
+            >
+              {item.headline}
+            </a>
+          ) : (
+            <p className="text-sm font-medium">{item.headline}</p>
+          )}
+          {item.description && (
+            <p className="muted mt-1 text-xs">{item.description}</p>
+          )}
+          {item.published && (
+            <time className="muted text-xs" dateTime={item.published}>
+              {new Date(item.published).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+              })}
+            </time>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * "4th of 38" -- and in bold when it is a number worth noticing.
+ *
+ * The top ten at a position is roughly the starter line in a twelve-team
+ * league, which makes it the threshold that means something here.
+ */
+function PositionRank({ rank }: { rank?: StatRank }) {
+  if (!rank) return <span className="muted text-xs">&mdash;</span>;
+
+  return (
+    <span
+      className={`text-xs tabular-nums ${
+        rank.rank <= 10 ? "font-semibold text-accent" : "text-muted"
+      }`}
+    >
+      {ordinal(rank.rank)}
+      <span className="muted font-normal"> of {rank.pool}</span>
+    </span>
+  );
+}
+
+/** 1st, 2nd, 3rd, 4th -- including the 11th-to-13th exceptions. */
+function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}th`;
+  return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
 
 function Stat({ label, value }: { label: string; value: string }) {

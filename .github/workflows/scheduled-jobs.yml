@@ -15,7 +15,10 @@ name: Scheduled jobs
 
 on:
   schedule:
-    # Player list and schedule: every morning, 05:00 ET.
+    # Player list, schedule, ADP and this season's projections: every
+    # morning, 05:00 ET. ADP moves daily through August and not at all
+    # once drafts are done, and a season projection moves with it, so
+    # both ride along with the player sync rather than getting a slot.
     - cron: "0 9 * * *"
     # Stats: through the night after each slate, so corrections land.
     # Mon/Tue/Wed/Fri 04:00, 10:00 and 16:00 UTC.
@@ -32,6 +35,10 @@ on:
     # injuries are reported, and the Sunday number is the one people
     # actually set a lineup against.
     - cron: "0 13 * * 0,3,5"
+    # Injuries: every three hours. The cheapest job here and the one
+    # worth running most often -- a practice report lands hours before
+    # kickoff and decides who starts.
+    - cron: "0 */3 * * *"
 
   # Lets you run any single job by hand from the Actions tab.
   workflow_dispatch:
@@ -43,9 +50,12 @@ on:
         type: choice
         options:
           - sync-players
+          - sync-adp
           - sync-games
           - sync-stats
           - sync-projections
+          - sync-season-projections
+          - sync-injuries
           - live-scores
           - lock-lineups
           - process-waivers
@@ -68,12 +78,13 @@ jobs:
             echo "jobs=$MANUAL" >> "$GITHUB_OUTPUT"
           else
             case "$SCHEDULE" in
-              "0 9 * * *")            echo "jobs=sync-players sync-games" >> "$GITHUB_OUTPUT" ;;
+              "0 9 * * *")            echo "jobs=sync-players sync-games sync-adp sync-season-projections" >> "$GITHUB_OUTPUT" ;;
               "0 4,10,16 * * 1,2,3,5") echo "jobs=sync-stats" >> "$GITHUB_OUTPUT" ;;
               "*/15 16-23,0-6 * * 0,1,4,5") echo "jobs=lock-lineups" >> "$GITHUB_OUTPUT" ;;
               "*/5 17-23,0-6 * * 0,1,5") echo "jobs=live-scores" >> "$GITHUB_OUTPUT" ;;
               "0 * * * *")            echo "jobs=process-waivers" >> "$GITHUB_OUTPUT" ;;
               "0 13 * * 0,3,5")       echo "jobs=sync-projections" >> "$GITHUB_OUTPUT" ;;
+              "0 */3 * * *")          echo "jobs=sync-injuries" >> "$GITHUB_OUTPUT" ;;
               *)                      echo "jobs=" >> "$GITHUB_OUTPUT" ;;
             esac
           fi

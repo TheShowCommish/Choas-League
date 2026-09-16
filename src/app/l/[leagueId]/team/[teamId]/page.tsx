@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import { getLeagueContext } from "@/lib/league";
 import { getTeamRoster } from "@/lib/roster";
 import { createClient } from "@/lib/supabase/server";
+import { TeamCrest, TeamTheme } from "../../team-theme";
 import { WeekPicker } from "../../week-picker";
+import { positionLabel } from "@/lib/roster-slots";
 
 export default async function TeamPage({
   params,
@@ -46,20 +48,44 @@ export default async function TeamPage({
   const total = starters.reduce((sum, r) => sum + r.points, 0);
 
   return (
-    <div className="space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="h1">{team.name}</h1>
-          <p className="muted">
-            {owner?.display_name ?? "Unclaimed"} &middot; $
-            {team.faab_remaining} FAAB &middot; {roster.length} players
-          </p>
-        </div>
-        <WeekPicker
-          week={week}
-          lastWeek={lastWeek}
-          currentWeek={league.current_week}
+    // The whole page wears the team's colours, so flicking between two
+    // rosters is obvious at a glance rather than a matter of reading the
+    // heading each time.
+    <TeamTheme
+      color={team.color}
+      secondary={team.secondary_color}
+      className="space-y-4"
+    >
+      <header className="card-tight overflow-hidden">
+        <div
+          className="h-1.5 w-full"
+          style={{
+            background: `linear-gradient(90deg, var(--team), var(--team-2))`,
+          }}
         />
+        <div className="flex flex-wrap items-center gap-4 p-4">
+          <TeamCrest
+            logoUrl={team.logo_url}
+            abbreviation={team.abbreviation}
+            name={team.name}
+            color={team.color}
+            secondary={team.secondary_color}
+            size={56}
+          />
+          <div className="min-w-0 flex-1">
+            {team.city && <p className="muted text-sm">{team.city}</p>}
+            <h1 className="h1">{team.name}</h1>
+            <p className="muted">
+              {owner?.display_name ?? "Unclaimed"} &middot; $
+              {team.faab_remaining} FAAB &middot; {roster.length} players
+            </p>
+          </div>
+          <WeekPicker
+            week={week}
+            lastWeek={lastWeek}
+            currentWeek={league.current_week}
+          />
+        </div>
       </header>
 
       <div className="flex flex-wrap gap-2">
@@ -94,7 +120,7 @@ export default async function TeamPage({
         <h2 className="h2 mb-2">Bench</h2>
         <RosterTable leagueId={leagueId} entries={bench} showSlot={false} />
       </section>
-    </div>
+    </TeamTheme>
   );
 }
 
@@ -135,7 +161,7 @@ function RosterTable({
                   {entry.player.full_name}
                 </Link>
                 <span className="muted text-xs">
-                  {entry.player.position ?? "?"} &middot;{" "}
+                  {positionLabel(entry.player.position)} &middot;{" "}
                   {entry.player.team_abbr ?? "FA"} &middot;{" "}
                   {entry.game ? entry.opponent : "BYE"}
                 </span>

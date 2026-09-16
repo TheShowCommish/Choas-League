@@ -4,10 +4,23 @@
 -- Regenerate with:  npm run gen:stat-seed
 -- Source of truth:  src/lib/stats/catalog.ts
 --
--- 193 stats across 9 categories.
--- 192 are populated by the
+-- 220 stats across 10 categories.
+-- 219 are populated by the
 -- ingestion jobs today; the rest need play-by-play aggregation.
 -- =====================================================================
+
+-- The constraint has to admit what this file is about to insert.
+--
+-- It is asserted here rather than in whichever migration introduced a
+-- new applies_to value, because this file is re-run out of order --
+-- `db:push --redo 0010` runs it before every later migration -- so a
+-- constraint widened in a later migration would arrive too late to help.
+-- Emitted from STAT_APPLIES_TO, so it cannot drift from the catalog.
+alter table public.stat_definitions
+  drop constraint if exists stat_definitions_applies_to_check;
+alter table public.stat_definitions
+  add constraint stat_definitions_applies_to_check
+  check (applies_to in ('player', 'team_defense', 'team_offense'));
 
 insert into public.stat_definitions
   (key, label, category, description, applies_to, value_type, default_points,
@@ -205,7 +218,34 @@ values
   ('dst_ya_200_299', 'Yards Allowed: 200-299', 'Team Defense / ST', 'Bonus tier for 200-299 yards allowed.', 'team_defense', 'flag', 0, true, 'team', true, 1900),
   ('dst_ya_300_399', 'Yards Allowed: 300-399', 'Team Defense / ST', 'Bonus tier for 300-399 yards allowed.', 'team_defense', 'flag', 0, true, 'team', true, 1910),
   ('dst_ya_400_449', 'Yards Allowed: 400-449', 'Team Defense / ST', 'Bonus tier for 400-449 yards allowed.', 'team_defense', 'flag', 0, true, 'team', true, 1920),
-  ('dst_ya_450_plus', 'Yards Allowed: 450+', 'Team Defense / ST', 'Bonus tier for 450 or more yards allowed.', 'team_defense', 'flag', 0, true, 'team', true, 1930)
+  ('dst_ya_450_plus', 'Yards Allowed: 450+', 'Team Defense / ST', 'Bonus tier for 450 or more yards allowed.', 'team_defense', 'flag', 0, true, 'team', true, 1930),
+  ('ol_sacks_allowed', 'Sacks Allowed', 'Team O-Line', 'Sacks the quarterback took.', 'team_offense', 'count', -1, true, 'team', true, 1940),
+  ('ol_sack_yards_allowed', 'Sack Yards Allowed', 'Team O-Line', 'Yards lost on those sacks.', 'team_offense', 'count', -0.1, true, 'team', true, 1950),
+  ('ol_qb_hits_allowed', 'QB Hits Allowed', 'Team O-Line', 'Hits taken by the quarterback.', 'team_offense', 'count', -0.25, true, 'pbp', true, 1960),
+  ('ol_dropbacks', 'Pass Blocks', 'Team O-Line', 'Dropbacks blocked: attempts plus sacks.', 'team_offense', 'count', 0, true, 'team', true, 1970),
+  ('ol_pressure_free_rate', 'Clean Pocket Rate', 'Team O-Line', 'Share of dropbacks with no sack or hit.', 'team_offense', 'rate', 0, false, 'team', true, 1980),
+  ('ol_rush_attempts', 'Rush Attempts', 'Team O-Line', 'Carries the line blocked for.', 'team_offense', 'count', 0, true, 'team', true, 1990),
+  ('ol_rushing_yards', 'Rushing Yards', 'Team O-Line', 'Team rushing yards.', 'team_offense', 'count', 0.05, true, 'team', true, 2000),
+  ('ol_rushing_tds', 'Rushing TDs', 'Team O-Line', 'Team rushing touchdowns.', 'team_offense', 'count', 2, true, 'team', true, 2010),
+  ('ol_yards_per_carry', 'Yards Per Carry', 'Team O-Line', 'Team rushing average.', 'team_offense', 'rate', 0, false, 'team', true, 2020),
+  ('ol_stuffs_allowed', 'Runs Stuffed', 'Team O-Line', 'Carries stopped at or behind the line.', 'team_offense', 'count', -0.5, true, 'pbp', true, 2030),
+  ('ol_passing_yards', 'Passing Yards', 'Team O-Line', 'Team passing yards.', 'team_offense', 'count', 0.01, true, 'team', true, 2040),
+  ('ol_passing_tds', 'Passing TDs', 'Team O-Line', 'Team passing touchdowns.', 'team_offense', 'count', 1, true, 'team', true, 2050),
+  ('ol_first_downs', 'First Downs', 'Team O-Line', 'Team first downs gained.', 'team_offense', 'count', 0.25, true, 'team', true, 2060),
+  ('ol_third_down_conversions', 'Third Downs Converted', 'Team O-Line', 'Third downs the offense moved the chains on.', 'team_offense', 'count', 0.5, true, 'pbp', true, 2070),
+  ('ol_red_zone_tds', 'Red Zone TDs', 'Team O-Line', 'Touchdowns scored from inside the twenty.', 'team_offense', 'count', 1, true, 'pbp', true, 2080),
+  ('ol_points_scored', 'Points Scored', 'Team O-Line', 'Points the offense put up.', 'team_offense', 'count', 0, true, 'team', true, 2090),
+  ('ol_offensive_snaps', 'Offensive Snaps', 'Team O-Line', 'Snaps the line played.', 'team_offense', 'count', 0, true, 'pbp', true, 2100),
+  ('ol_penalties', 'Line Penalties', 'Team O-Line', 'Holding, false start and illegal formation flags.', 'team_offense', 'count', -1, true, 'pbp', true, 2110),
+  ('ol_false_starts', 'False Starts', 'Team O-Line', 'False start penalties.', 'team_offense', 'count', 0, true, 'pbp', true, 2120),
+  ('ol_holding_penalties', 'Holding Penalties', 'Team O-Line', 'Offensive holding penalties.', 'team_offense', 'count', 0, true, 'pbp', true, 2130),
+  ('ol_no_sacks_allowed', 'Clean Sheet', 'Team O-Line', 'The quarterback was not sacked once.', 'team_offense', 'flag', 5, true, 'team', true, 2140),
+  ('ol_sacks_allowed_1_2', 'Sacks Allowed: 1-2', 'Team O-Line', 'Bonus tier for one or two sacks allowed.', 'team_offense', 'flag', 2, true, 'team', true, 2150),
+  ('ol_sacks_allowed_3_4', 'Sacks Allowed: 3-4', 'Team O-Line', 'Bonus tier for three or four sacks allowed.', 'team_offense', 'flag', 0, true, 'team', true, 2160),
+  ('ol_sacks_allowed_5_plus', 'Sacks Allowed: 5+', 'Team O-Line', 'Bonus tier for five or more sacks allowed.', 'team_offense', 'flag', -3, true, 'team', true, 2170),
+  ('ol_rush_100_bonus', '100 Rushing Yards', 'Team O-Line', 'The run game reached 100 yards.', 'team_offense', 'flag', 1, true, 'team', true, 2180),
+  ('ol_rush_150_bonus', '150 Rushing Yards', 'Team O-Line', 'The run game reached 150 yards.', 'team_offense', 'flag', 2, true, 'team', true, 2190),
+  ('ol_rush_200_bonus', '200 Rushing Yards', 'Team O-Line', 'The run game reached 200 yards.', 'team_offense', 'flag', 3, true, 'team', true, 2200)
 on conflict (key) do update set
   label          = excluded.label,
   category       = excluded.category,
@@ -220,4 +260,26 @@ on conflict (key) do update set
 
 -- Remove stats that have been dropped from the catalog.
 delete from public.stat_definitions
-where key not in ('pass_attempts', 'pass_completions', 'pass_incompletions', 'passing_yards', 'passing_tds', 'interceptions_thrown', 'sacks_taken', 'sack_yards_lost', 'passing_first_downs', 'passing_air_yards', 'passing_yards_after_catch', 'pass_2pt_conversions', 'passing_epa', 'pass_td_40_plus', 'pass_completion_40_plus', 'pass_completion_20_plus', 'pass_attempts_deep', 'pass_completions_deep', 'pass_attempts_redzone', 'pass_tds_redzone', 'pass_300_bonus', 'pass_400_bonus', 'pass_500_bonus', 'pass_4td_bonus', 'pass_6td_bonus', 'pass_clean_game', 'completion_pct', 'yards_per_attempt', 'passer_rating', 'cpoe', 'pacr', 'rush_attempts', 'rushing_yards', 'rushing_tds', 'rushing_first_downs', 'rushing_epa', 'rush_2pt_conversions', 'rushing_fumbles', 'rushing_fumbles_lost', 'rush_10_plus', 'rush_20_plus', 'rush_40_plus', 'rush_td_40_plus', 'rush_attempts_redzone', 'rush_attempts_inside_5', 'rush_yards_before_contact', 'rush_yards_after_contact', 'rush_broken_tackles', 'rush_stuffed', 'rush_100_bonus', 'rush_150_bonus', 'rush_200_bonus', 'rush_3td_bonus', 'yards_per_carry', 'rush_yards_over_expected', 'targets', 'receptions', 'receiving_yards', 'receiving_tds', 'receiving_first_downs', 'receiving_air_yards', 'receiving_yards_after_catch', 'receiving_epa', 'rec_2pt_conversions', 'receiving_fumbles', 'receiving_fumbles_lost', 'drops', 'rec_20_plus', 'rec_40_plus', 'rec_td_40_plus', 'targets_redzone', 'targets_endzone', 'targets_deep', 'rec_100_bonus', 'rec_150_bonus', 'rec_200_bonus', 'rec_10_catch_bonus', 'target_share', 'air_yards_share', 'wopr', 'racr', 'yards_per_reception', 'yards_per_target', 'fg_made', 'fg_attempts', 'fg_missed', 'fg_made_0_19', 'fg_made_20_29', 'fg_made_30_39', 'fg_made_40_49', 'fg_made_50_59', 'fg_made_60_plus', 'fg_missed_0_39', 'fg_missed_40_49', 'fg_missed_50_plus', 'fg_made_total_yards', 'fg_longest', 'pat_made', 'pat_attempts', 'pat_missed', 'punts', 'punt_yards', 'punt_inside_20', 'punt_50_plus', 'punt_touchbacks', 'punt_fair_catches', 'punts_blocked', 'coach_win', 'coach_loss', 'coach_tie', 'coach_win_margin', 'coach_loss_margin', 'coach_points_scored', 'coach_offensive_yards', 'coach_turnovers_committed', 'coach_turnovers_forced', 'coach_comeback_4q', 'coach_win_streak', 'coach_loss_streak', 'fumbles', 'fumbles_lost', 'fumble_recoveries_own', 'fumble_recovery_tds', 'kick_returns', 'kick_return_yards', 'kick_return_tds', 'punt_returns', 'punt_return_yards', 'punt_return_tds', 'special_teams_tds', 'offensive_snaps', 'snap_share', 'total_touches', 'total_yards_from_scrimmage', 'all_purpose_yards', 'total_tds', 'tackles_solo', 'tackles_assist', 'tackles_combined', 'tackles_for_loss', 'def_sacks', 'def_sack_yards', 'qb_hits', 'def_interceptions', 'def_interception_yards', 'def_interception_tds', 'passes_defended', 'forced_fumbles', 'def_fumble_recoveries', 'def_fumble_return_yards', 'def_fumble_tds', 'def_safeties', 'def_blocked_kicks', 'def_tds', 'defensive_snaps', 'def_stuffs', 'def_targets', 'def_completions_allowed', 'def_yards_allowed', 'dst_sacks', 'dst_interceptions', 'dst_fumble_recoveries', 'dst_forced_fumbles', 'dst_safeties', 'dst_tds', 'dst_blocked_kicks', 'dst_tackles_for_loss', 'dst_qb_hits', 'dst_passes_defended', 'dst_return_yards', 'dst_return_tds', 'dst_points_allowed', 'dst_yards_allowed', 'dst_pass_yards_allowed', 'dst_rush_yards_allowed', 'dst_first_downs_allowed', 'dst_three_and_outs', 'dst_fourth_down_stops', 'dst_turnovers', 'dst_shutout', 'dst_pa_0', 'dst_pa_1_6', 'dst_pa_7_13', 'dst_pa_14_20', 'dst_pa_21_27', 'dst_pa_28_34', 'dst_pa_35_plus', 'dst_ya_under_100', 'dst_ya_100_199', 'dst_ya_200_299', 'dst_ya_300_399', 'dst_ya_400_449', 'dst_ya_450_plus');
+where key not in ('pass_attempts', 'pass_completions', 'pass_incompletions', 'passing_yards', 'passing_tds', 'interceptions_thrown', 'sacks_taken', 'sack_yards_lost', 'passing_first_downs', 'passing_air_yards', 'passing_yards_after_catch', 'pass_2pt_conversions', 'passing_epa', 'pass_td_40_plus', 'pass_completion_40_plus', 'pass_completion_20_plus', 'pass_attempts_deep', 'pass_completions_deep', 'pass_attempts_redzone', 'pass_tds_redzone', 'pass_300_bonus', 'pass_400_bonus', 'pass_500_bonus', 'pass_4td_bonus', 'pass_6td_bonus', 'pass_clean_game', 'completion_pct', 'yards_per_attempt', 'passer_rating', 'cpoe', 'pacr', 'rush_attempts', 'rushing_yards', 'rushing_tds', 'rushing_first_downs', 'rushing_epa', 'rush_2pt_conversions', 'rushing_fumbles', 'rushing_fumbles_lost', 'rush_10_plus', 'rush_20_plus', 'rush_40_plus', 'rush_td_40_plus', 'rush_attempts_redzone', 'rush_attempts_inside_5', 'rush_yards_before_contact', 'rush_yards_after_contact', 'rush_broken_tackles', 'rush_stuffed', 'rush_100_bonus', 'rush_150_bonus', 'rush_200_bonus', 'rush_3td_bonus', 'yards_per_carry', 'rush_yards_over_expected', 'targets', 'receptions', 'receiving_yards', 'receiving_tds', 'receiving_first_downs', 'receiving_air_yards', 'receiving_yards_after_catch', 'receiving_epa', 'rec_2pt_conversions', 'receiving_fumbles', 'receiving_fumbles_lost', 'drops', 'rec_20_plus', 'rec_40_plus', 'rec_td_40_plus', 'targets_redzone', 'targets_endzone', 'targets_deep', 'rec_100_bonus', 'rec_150_bonus', 'rec_200_bonus', 'rec_10_catch_bonus', 'target_share', 'air_yards_share', 'wopr', 'racr', 'yards_per_reception', 'yards_per_target', 'fg_made', 'fg_attempts', 'fg_missed', 'fg_made_0_19', 'fg_made_20_29', 'fg_made_30_39', 'fg_made_40_49', 'fg_made_50_59', 'fg_made_60_plus', 'fg_missed_0_39', 'fg_missed_40_49', 'fg_missed_50_plus', 'fg_made_total_yards', 'fg_longest', 'pat_made', 'pat_attempts', 'pat_missed', 'punts', 'punt_yards', 'punt_inside_20', 'punt_50_plus', 'punt_touchbacks', 'punt_fair_catches', 'punts_blocked', 'coach_win', 'coach_loss', 'coach_tie', 'coach_win_margin', 'coach_loss_margin', 'coach_points_scored', 'coach_offensive_yards', 'coach_turnovers_committed', 'coach_turnovers_forced', 'coach_comeback_4q', 'coach_win_streak', 'coach_loss_streak', 'fumbles', 'fumbles_lost', 'fumble_recoveries_own', 'fumble_recovery_tds', 'kick_returns', 'kick_return_yards', 'kick_return_tds', 'punt_returns', 'punt_return_yards', 'punt_return_tds', 'special_teams_tds', 'offensive_snaps', 'snap_share', 'total_touches', 'total_yards_from_scrimmage', 'all_purpose_yards', 'total_tds', 'tackles_solo', 'tackles_assist', 'tackles_combined', 'tackles_for_loss', 'def_sacks', 'def_sack_yards', 'qb_hits', 'def_interceptions', 'def_interception_yards', 'def_interception_tds', 'passes_defended', 'forced_fumbles', 'def_fumble_recoveries', 'def_fumble_return_yards', 'def_fumble_tds', 'def_safeties', 'def_blocked_kicks', 'def_tds', 'defensive_snaps', 'def_stuffs', 'def_targets', 'def_completions_allowed', 'def_yards_allowed', 'dst_sacks', 'dst_interceptions', 'dst_fumble_recoveries', 'dst_forced_fumbles', 'dst_safeties', 'dst_tds', 'dst_blocked_kicks', 'dst_tackles_for_loss', 'dst_qb_hits', 'dst_passes_defended', 'dst_return_yards', 'dst_return_tds', 'dst_points_allowed', 'dst_yards_allowed', 'dst_pass_yards_allowed', 'dst_rush_yards_allowed', 'dst_first_downs_allowed', 'dst_three_and_outs', 'dst_fourth_down_stops', 'dst_turnovers', 'dst_shutout', 'dst_pa_0', 'dst_pa_1_6', 'dst_pa_7_13', 'dst_pa_14_20', 'dst_pa_21_27', 'dst_pa_28_34', 'dst_pa_35_plus', 'dst_ya_under_100', 'dst_ya_100_199', 'dst_ya_200_299', 'dst_ya_300_399', 'dst_ya_400_449', 'dst_ya_450_plus', 'ol_sacks_allowed', 'ol_sack_yards_allowed', 'ol_qb_hits_allowed', 'ol_dropbacks', 'ol_pressure_free_rate', 'ol_rush_attempts', 'ol_rushing_yards', 'ol_rushing_tds', 'ol_yards_per_carry', 'ol_stuffs_allowed', 'ol_passing_yards', 'ol_passing_tds', 'ol_first_downs', 'ol_third_down_conversions', 'ol_red_zone_tds', 'ol_points_scored', 'ol_offensive_snaps', 'ol_penalties', 'ol_false_starts', 'ol_holding_penalties', 'ol_no_sacks_allowed', 'ol_sacks_allowed_1_2', 'ol_sacks_allowed_3_4', 'ol_sacks_allowed_5_plus', 'ol_rush_100_bonus', 'ol_rush_150_bonus', 'ol_rush_200_bonus');
+
+-- Give every existing league a rule for whatever was just added.
+--
+-- seed_default_scoring_rules only runs when a league is created, so
+-- without this a stat added to the catalog today would reach new
+-- leagues and no others -- see 0033. Doing it here means re-running
+-- this file is all a catalog change ever needs.
+--
+-- Only missing base rules are inserted: a commissioner who has already
+-- set a value, zero included, keeps it, and per-position overrides are
+-- left alone.
+insert into public.league_scoring_rules (league_id, stat_key, points, positions)
+select l.id, d.key, d.default_points, '{}'::text[]
+from public.leagues l
+cross join public.stat_definitions d
+where d.scorable
+  and not exists (
+    select 1 from public.league_scoring_rules r
+    where r.league_id = l.id
+      and r.stat_key = d.key
+      and cardinality(r.positions) = 0
+  );

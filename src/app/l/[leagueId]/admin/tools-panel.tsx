@@ -8,6 +8,7 @@ import { DraftOrderEditor } from "./draft-order";
 import {
   advancePlayoffs,
   assignTeamOwner,
+  deleteLeague,
   generatePlayoffs,
   generateSchedule,
   processWaivers,
@@ -46,6 +47,11 @@ export function ToolsPanel({
   );
 
   const [desiredTeams, setDesiredTeams] = useState(teams.length);
+
+  // Typed back before the league can be deleted. Held here rather than
+  // read off the form on submit so the button can stay disabled until
+  // it matches, which is most of the safety.
+  const [confirmName, setConfirmName] = useState("");
 
   /** Runs an action and surfaces whatever it says, success or failure. */
   function run(fn: () => Promise<AdminResult>, confirmText?: string) {
@@ -417,6 +423,48 @@ export function ToolsPanel({
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="card space-y-3 border-negative/40">
+        <div>
+          <h3 className="h2 text-negative">Delete this league</h3>
+          <p className="muted text-sm">
+            Removes {league.name} and everything in it: all {teams.length}{" "}
+            teams and their rosters, every lineup, matchup, trade, draft
+            pick, chat message and week of scoring. Members keep their
+            accounts and any other league they are in. This cannot be
+            undone.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="min-w-56 flex-1">
+            <label className="label" htmlFor="confirm-league-name">
+              Type <strong className="text-foreground">{league.name}</strong>{" "}
+              to confirm
+            </label>
+            <input
+              id="confirm-league-name"
+              className="input"
+              value={confirmName}
+              onChange={(e) => setConfirmName(e.target.value)}
+              placeholder={league.name}
+              autoComplete="off"
+            />
+          </div>
+          <button
+            className="btn btn-danger"
+            disabled={pending || confirmName.trim() !== league.name}
+            onClick={() =>
+              run(
+                () => deleteLeague(league.id, confirmName),
+                `Delete ${league.name} for good? Everyone in it loses the whole season.`,
+              )
+            }
+          >
+            Delete league
+          </button>
+        </div>
       </section>
     </div>
   );

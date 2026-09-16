@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import type { AutodraftStrategy } from "@/lib/types";
 
 export interface DraftResult {
   error?: string;
@@ -47,17 +48,99 @@ export async function queuePlayer(
   teamId: string,
   playerId: string,
   rank: number,
+  targetRound: number | null = null,
 ): Promise<DraftResult> {
   const supabase = await createClient();
   const { error } = await supabase
     .from("draft_queue")
     .upsert(
-      { team_id: teamId, player_id: playerId, rank },
+      { team_id: teamId, player_id: playerId, rank, target_round: targetRound },
       { onConflict: "team_id,player_id" },
     );
 
   if (error) return { error: error.message };
   return { ok: "Queued." };
+}
+
+/**
+ * The earliest round a queued player may be taken in.
+ *
+ * Null means any round. This is what lets a manager park a round-seven
+ * target in the queue during round one without autopick reaching for
+ * him: until the round arrives he is skipped, and autopick moves on to
+ * the next name down -- or to the best available if nobody is due.
+ */
+export async function setQueueRound(
+  teamId: string,
+  playerId: string,
+  targetRound: number | null,
+): Promise<DraftResult> {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("draft_queue")
+    .update({ target_round: targetRound })
+    .eq("team_id", teamId)
+    .eq("player_id", playerId);
+
+  if (error) return { error: error.message };
+  return { ok: "Round set." };
+}
+
+/**
+ * Rewrites the whole queue order in one go.
+ *
+ * The client sends the list as it now reads, rather than "move this one
+ * up", because a queue being reordered while a pick lands is a good way
+ * to end up with two players ranked fourth.
+ */
+export async function reorderQueue(
+  teamId: string,
+  playerIds: string[],
+): Promise<DraftResult> {
+  if (playerIds.length === 0) return {};
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("draft_queue").upsert(
+    playerIds.map((playerId, index) => ({
+      team_id: teamId,
+      player_id: playerId,
+      rank: index + 1,
+    })),
+    { onConflict: "team_id,player_id" },
+  );
+
+  if (error) return { error: error.message };
+  return {};
+}
+
+/**
+ * How autopick should choose for you once your queue runs dry.
+ *
+ * Stored on the team rather than per draft: it is a statement about how
+ * this manager drafts, and there is one draft a season anyway. The
+ * check constraint in 0036 is the real gate -- this validates first so
+ * a stale tab gets a sentence rather than a constraint violation.
+ */
+export async function setAutodraftStrategy(
+  leagueId: string,
+  teamId: string,
+  strategy: AutodraftStrategy,
+): Promise<DraftResult> {
+  const allowed: AutodraftStrategy[] = ["adp", "last_season", "projection"];
+  if (!allowed.includes(strategy)) {
+    return { error: "That is not an autodraft setting." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("teams")
+    .update({ autodraft_strategy: strategy })
+    .eq("id", teamId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath(`/l/${leagueId}/draft`);
+  return { ok: "Autodraft updated." };
 }
 
 export async function unqueuePlayer(

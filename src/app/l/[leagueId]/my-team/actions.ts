@@ -156,7 +156,13 @@ export async function dropPlayerById(
   return { ok: "Player dropped." };
 }
 
-/** Rename your own team. */
+/**
+ * Your team's identity: name, city, short code, colours and logo.
+ *
+ * Named for what it started as. The colour pair and the logo ride the
+ * same form because they are edited together, in one panel, and saving
+ * half a team's identity is not a thing anybody wants.
+ */
 export async function renameTeam(
   _prev: LineupResult,
   formData: FormData,
@@ -164,15 +170,22 @@ export async function renameTeam(
   const leagueId = String(formData.get("league_id"));
   const teamId = String(formData.get("team_id"));
   const name = String(formData.get("name") ?? "").trim();
+  const city = String(formData.get("city") ?? "").trim();
   const abbreviation = String(formData.get("abbreviation") ?? "")
     .trim()
     .toUpperCase();
   const color = String(formData.get("color") ?? "").trim();
+  const secondary = String(formData.get("secondary_color") ?? "").trim();
   const logoUrl = String(formData.get("logo_url") ?? "").trim();
 
   if (!name) return { error: "A team needs a name." };
-  if (color && !/^#[0-9a-fA-F]{6}$/.test(color)) {
-    return { error: "Pick a colour, or leave it alone." };
+
+  const hex = /^#[0-9a-fA-F]{6}$/;
+  if (color && !hex.test(color)) {
+    return { error: "Pick a main colour, or leave it alone." };
+  }
+  if (secondary && !hex.test(secondary)) {
+    return { error: "Pick an accent colour, or leave it alone." };
   }
 
   // Anything that ends up in an <img src>. Blocking javascript: and
@@ -186,8 +199,10 @@ export async function renameTeam(
     .from("teams")
     .update({
       name,
+      city: city.slice(0, 60),
       abbreviation: abbreviation.slice(0, 5),
       ...(color ? { color } : {}),
+      ...(secondary ? { secondary_color: secondary } : {}),
       logo_url: logoUrl || null,
     })
     .eq("id", teamId);

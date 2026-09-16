@@ -12,7 +12,7 @@ create table if not exists public.stat_definitions (
   category      text not null,   -- Passing, Rushing, Receiving, Kicking, ...
   description   text not null default '',
   applies_to    text not null default 'player'
-                check (applies_to in ('player','team_defense')),
+                check (applies_to in ('player','team_defense','team_offense')),
   -- 'count' = additive stat, 'flag' = 0/1 bonus trigger, 'rate' = informational
   value_type    text not null default 'count'
                 check (value_type in ('count','flag','rate')),

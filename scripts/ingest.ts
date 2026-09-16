@@ -7,6 +7,9 @@
  *   npm run ingest -- stats all        # backfill the whole season
  *   npm run ingest -- stats 3
  *   npm run ingest -- projections 6    # Sleeper projections for week 6
+ *   npm run ingest -- season-projections
+ *   npm run ingest -- injuries         # who is hurt, and with what
+ *   npm run ingest -- adp              # mock-draft average draft position
  *   npm run ingest -- all              # players, games, then the season
  *
  * Use this for the first load and for backfills: a full season of stats
@@ -23,9 +26,15 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 loadEnv(join(here, "..", ".env.local"));
 
-const { syncGames, syncPlayers, syncProjections, syncWeekStats } = await import(
-  "../src/lib/ingest/sync.ts"
-);
+const {
+  syncAdp,
+  syncGames,
+  syncInjuries,
+  syncPlayers,
+  syncProjections,
+  syncSeasonProjections,
+  syncWeekStats,
+} = await import("../src/lib/ingest/sync.ts");
 const { currentSeason } = await import("../src/lib/ingest/nflverse.ts");
 
 function loadEnv(path: string) {
@@ -89,17 +98,35 @@ try {
       break;
     }
 
+    case "season-projections":
+      report(await syncSeasonProjections(season));
+      break;
+
+    case "injuries":
+      report(await syncInjuries());
+      break;
+
+    case "adp":
+      report(await syncAdp(season));
+      break;
+
     case "all":
       // Players and games first: stat rows reference both.
       report(await syncPlayers(season));
       report(await syncGames(season));
       report(await syncWeekStats(season, null));
+      // Both of these match against the player table, so they have to
+      // follow the player sync.
+      report(await syncAdp(season));
+      report(await syncSeasonProjections(season));
+      report(await syncInjuries());
       break;
 
     default:
       console.error(`Unknown command "${command}".`);
       console.error(
-      "Try: players | games | stats [week|all] | projections <week> | all",
+      "Try: players | games | stats [week|all] | projections <week> | " +
+        "season-projections | injuries | adp | all",
     );
       process.exit(1);
   }

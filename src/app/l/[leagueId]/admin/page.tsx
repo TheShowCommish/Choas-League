@@ -49,7 +49,7 @@ export default async function AdminPage({
 
   const { data: playoffRounds } = await supabase
     .from("league_playoff_rounds")
-    .select("bracket, round_index, name, weeks")
+    .select("bracket, round_index, name, weeks, teams, byes")
     .eq("league_id", leagueId)
     .order("round_index");
 

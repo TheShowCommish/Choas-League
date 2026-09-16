@@ -1,0 +1,9 @@
+# Decisions Made by the Team
+
+Small decisions only (see RULES.md). One line each, newest at the bottom.
+The executive can reverse any of them. Mark reviewed entries with ✔ in CHECKIN.
+
+| Date | Task | Decision | Who | Easy to reverse? |
+|------|------|----------|-----|------------------|
+| 2026-09-16 | Q1 | Commit all existing uncommitted work as-is as the baseline | executive | no |
+| 2026-09-16 | Q2 | Auto-push to origin main after a task passes review + test | executive | yes |

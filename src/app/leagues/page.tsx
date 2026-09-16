@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import type { League } from "@/lib/types";
+import { ThemeSwitch } from "@/app/theme-switch";
 import { LeagueForms } from "./forms";
 
 interface MembershipRow {
@@ -35,9 +36,12 @@ export default async function LeaguesPage() {
           <h1 className="h1">Your leagues</h1>
           <p className="muted">Signed in as {profile?.display_name ?? user?.email}</p>
         </div>
-        <form action="/auth/signout" method="post">
-          <button className="btn btn-sm">Sign out</button>
-        </form>
+        <div className="flex shrink-0 items-center gap-2">
+          <ThemeSwitch />
+          <form action="/auth/signout" method="post">
+            <button className="btn btn-sm">Sign out</button>
+          </form>
+        </div>
       </header>
 
       {rows.length === 0 ? (

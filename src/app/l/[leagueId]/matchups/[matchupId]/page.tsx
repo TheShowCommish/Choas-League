@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { safeColor, tint } from "@/lib/colors";
 import { getLeagueContext } from "@/lib/league";
 import { getTeamRoster, type RosterEntry } from "@/lib/roster";
 import { createClient } from "@/lib/supabase/server";
-import { expandSlots } from "@/lib/roster-slots";
-import type { Matchup } from "@/lib/types";
+import { expandSlots, positionLabel } from "@/lib/roster-slots";
+import type { Matchup, Team } from "@/lib/types";
+import { NflCrest } from "../../nfl-crest";
+import { TeamCrest } from "../../team-theme";
 
 export default async function MatchupPage({
   params,
@@ -26,7 +29,7 @@ export default async function MatchupPage({
 
   const home = teams.find((t) => t.id === matchup.home_team_id);
   const away = matchup.away_team_id
-    ? teams.find((t) => t.id === matchup.away_team_id)
+    ? (teams.find((t) => t.id === matchup.away_team_id) ?? null)
     : null;
 
   if (!home) notFound();
@@ -44,29 +47,54 @@ export default async function MatchupPage({
   const homeBySlot = groupBySlot(homeRoster);
   const awayBySlot = groupBySlot(awayRoster);
 
+  const homeBench = benchOf(homeRoster, rosterSlots);
+  const awayBench = benchOf(awayRoster, rosterSlots);
+
+  const isFinal = matchup.status === "final";
+  const homeWon = Number(matchup.home_score) > Number(matchup.away_score);
+
   return (
     <div className="space-y-4">
-      <Link href={`/l/${leagueId}/matchups?week=${matchup.week}`} className="muted text-sm">
+      <Link
+        href={`/l/${leagueId}/matchups?week=${matchup.week}`}
+        className="muted text-sm"
+      >
         &larr; Week {matchup.week}
       </Link>
 
-      <header className="card">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm">{away?.name ?? "Bye"}</p>
-            <p className="text-2xl font-semibold tabular-nums">
-              {Number(matchup.away_score).toFixed(1)}
-            </p>
+      {/*
+        Each manager gets their own half of the scoreboard, in their own
+        colours, washing out towards the middle. Which half is which is
+        then obvious from across the room, which is what a team having
+        colours is for.
+      */}
+      <header className="card-tight overflow-hidden">
+        <div className="flex items-stretch">
+          <ScoreHalf
+            team={away}
+            score={Number(matchup.away_score)}
+            winner={isFinal && !homeWon && away !== null}
+            align="left"
+          />
+
+          <div className="flex shrink-0 flex-col items-center justify-center px-2 py-3">
+            <span className="muted text-xs font-semibold tracking-wide">
+              {isFinal ? "FINAL" : `WK ${matchup.week}`}
+            </span>
+            {matchup.week_count > 1 && (
+              <span className="muted text-xs">{matchup.week_count} weeks</span>
+            )}
+            {matchup.is_playoff && matchup.playoff_round && (
+              <span className="muted text-xs">{matchup.playoff_round}</span>
+            )}
           </div>
-          <span className="muted text-xs">
-            {matchup.status === "final" ? "FINAL" : `WK ${matchup.week}`}
-          </span>
-          <div className="min-w-0 flex-1 text-right">
-            <p className="truncate text-sm">{home.name}</p>
-            <p className="text-2xl font-semibold tabular-nums">
-              {Number(matchup.home_score).toFixed(1)}
-            </p>
-          </div>
+
+          <ScoreHalf
+            team={home}
+            score={Number(matchup.home_score)}
+            winner={isFinal && homeWon}
+            align="right"
+          />
         </div>
       </header>
 
@@ -95,16 +123,77 @@ export default async function MatchupPage({
 
       <div className="grid gap-4 md:grid-cols-2">
         <BenchList
-          title={`${away?.name ?? home.name} bench`}
+          team={away ?? home}
           leagueId={leagueId}
-          entries={away ? benchOf(awayRoster, rosterSlots) : []}
+          entries={away ? awayBench : homeBench}
         />
-        <BenchList
-          title={`${home.name} bench`}
-          leagueId={leagueId}
-          entries={benchOf(homeRoster, rosterSlots)}
-        />
+        <BenchList team={home} leagueId={leagueId} entries={homeBench} />
       </div>
+    </div>
+  );
+}
+
+/**
+ * One team's half of the scoreboard.
+ *
+ * The wash runs outwards from that team's own edge, so the two halves
+ * meet in the middle on the page's own background rather than in a
+ * collision of two managers' colour choices.
+ */
+function ScoreHalf({
+  team,
+  score,
+  winner,
+  align,
+}: {
+  team: Team | null;
+  score: number;
+  winner: boolean;
+  align: "left" | "right";
+}) {
+  const right = align === "right";
+
+  if (!team) {
+    return (
+      <div className="min-w-0 flex-1 px-3 py-3">
+        <p className="muted text-sm">Bye</p>
+      </div>
+    );
+  }
+
+  const color = safeColor(team.color);
+
+  return (
+    <div
+      className={`min-w-0 flex-1 px-3 py-3 ${right ? "text-right" : ""}`}
+      style={{
+        background: `linear-gradient(${right ? "270deg" : "90deg"}, ${tint(
+          color,
+          winner ? 34 : 20,
+        )}, transparent 85%)`,
+        [right ? "borderRight" : "borderLeft"]: `4px solid ${color}`,
+      }}
+    >
+      <div
+        className={`flex items-center gap-2 ${right ? "flex-row-reverse" : ""}`}
+      >
+        <TeamCrest
+          logoUrl={team.logo_url}
+          abbreviation={team.abbreviation}
+          name={team.name}
+          color={team.color}
+          secondary={team.secondary_color}
+          size={36}
+        />
+        <p className="min-w-0 flex-1 truncate text-sm">{team.name}</p>
+      </div>
+      <p
+        className={`mt-1 text-2xl tabular-nums ${
+          winner ? "font-bold" : "font-semibold"
+        }`}
+      >
+        {score.toFixed(1)}
+      </p>
     </div>
   );
 }
@@ -163,22 +252,31 @@ function PlayerCell({
 }) {
   if (!entry) {
     return (
-      <div className={`min-w-0 flex-1 text-muted ${align === "right" ? "text-right" : ""}`}>
+      <div
+        className={`min-w-0 flex-1 text-muted ${align === "right" ? "text-right" : ""}`}
+      >
         <span className="text-xs">Empty</span>
       </div>
     );
   }
 
+  const right = align === "right";
+
   return (
-    <div className={`min-w-0 flex-1 ${align === "right" ? "text-right" : ""}`}>
-      <Link
-        href={`/l/${leagueId}/players/${entry.playerId}`}
-        className="block truncate hover:text-accent"
+    <div className={`min-w-0 flex-1 ${right ? "text-right" : ""}`}>
+      <div
+        className={`flex items-center gap-1.5 ${right ? "flex-row-reverse" : ""}`}
       >
-        {entry.player.full_name}
-      </Link>
+        <NflCrest abbr={entry.player.team_abbr} size={18} />
+        <Link
+          href={`/l/${leagueId}/players/${entry.playerId}`}
+          className="min-w-0 flex-1 truncate hover:text-accent"
+        >
+          {entry.player.full_name}
+        </Link>
+      </div>
       <span className="muted block text-xs">
-        {entry.player.position ?? "?"} &middot;{" "}
+        {positionLabel(entry.player.position)} &middot;{" "}
         {entry.game ? entry.opponent : "BYE"} &middot;{" "}
         <span className="tabular-nums">{entry.points.toFixed(1)}</span>
       </span>
@@ -186,40 +284,62 @@ function PlayerCell({
   );
 }
 
+/**
+ * The bench, and what it was worth.
+ *
+ * The total sits in the summary rather than behind it. The bench score
+ * is the number managers actually argue about -- it is the whole "I
+ * left forty points on the bench" conversation -- and it should not
+ * cost a click. The names behind it still do, because the bench is long
+ * and the starters above are the game.
+ */
 function BenchList({
-  title,
+  team,
   leagueId,
   entries,
 }: {
-  title: string;
+  team: Team;
   leagueId: string;
   entries: RosterEntry[];
 }) {
   if (entries.length === 0) return null;
 
+  const total = entries.reduce((sum, entry) => sum + entry.points, 0);
+
   return (
-    <details className="card-tight">
-      <summary className="cursor-pointer p-3 text-sm font-medium">
-        {title}
+    <details className="card-tight overflow-hidden">
+      <summary
+        className="flex cursor-pointer items-center gap-2 p-3 text-sm"
+        style={{ borderLeft: `4px solid ${safeColor(team.color)}` }}
+      >
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {team.name} bench
+        </span>
+        <span className="muted shrink-0 text-xs">bench points</span>
+        <span className="shrink-0 font-semibold tabular-nums">
+          {total.toFixed(1)}
+        </span>
       </summary>
+
       <ul className="divide-y divide-border/60 border-t border-border">
         {entries.map((entry) => (
           <li
             key={entry.playerId}
             className="flex items-center justify-between gap-2 px-3 py-2 text-sm"
           >
-            <Link
-              href={`/l/${leagueId}/players/${entry.playerId}`}
-              className="min-w-0 truncate hover:text-accent"
-            >
-              {entry.player.full_name}
-              <span className="muted ml-2 text-xs">
-                {entry.player.position ?? "?"}
-              </span>
-            </Link>
-            <span className="muted tabular-nums">
-              {entry.points.toFixed(1)}
+            <span className="flex min-w-0 items-center gap-1.5">
+              <NflCrest abbr={entry.player.team_abbr} size={18} />
+              <Link
+                href={`/l/${leagueId}/players/${entry.playerId}`}
+                className="min-w-0 truncate hover:text-accent"
+              >
+                {entry.player.full_name}
+                <span className="muted ml-2 text-xs">
+                  {positionLabel(entry.player.position)}
+                </span>
+              </Link>
             </span>
+            <span className="muted tabular-nums">{entry.points.toFixed(1)}</span>
           </li>
         ))}
       </ul>

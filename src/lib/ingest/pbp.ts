@@ -15,7 +15,10 @@ import { n, s, streamCsv } from "./csv.ts";
 import { nflverseUrls, normalizeTeam } from "./nflverse.ts";
 import type { StatMap } from "./map-stats.ts";
 
-/** Keyed `${playerId}|${gameId}` or `DST_${team}|${gameId}`. */
+/**
+ * Keyed `${playerId}|${gameId}`, or `DST_${team}|${gameId}` and
+ * `OL_${team}|${gameId}` for the two team units.
+ */
 export type PbpTotals = Map<string, StatMap>;
 
 const REDZONE_YARDLINE = 20;
@@ -23,6 +26,28 @@ const GOAL_LINE_YARDLINE = 5;
 const DEEP_AIR_YARDS = 20;
 const LONG_TD_YARDS = 40;
 const LONG_PUNT_YARDS = 50;
+
+/**
+ * The penalties an offensive line is responsible for.
+ *
+ * nflverse gives a free-text penalty_type, so this is a list rather than
+ * a flag. Everything here is a flag thrown by somebody blocking; a
+ * delay of game or an illegal forward pass is the quarterback's, and a
+ * pass interference is the receiver's.
+ */
+const LINE_PENALTIES = new Set([
+  "Offensive Holding",
+  "False Start",
+  "Illegal Formation",
+  "Illegal Shift",
+  "Illegal Motion",
+  "Ineligible Downfield Pass",
+  "Illegal Block Above the Waist",
+  "Chop Block",
+  "Tripping",
+  "Offensive Too Many Men on Field",
+  "Illegal Use of Hands",
+]);
 
 /** Adds one to a counter, creating the row and key as needed. */
 function bump(totals: PbpTotals, key: string, stat: string, by = 1) {
@@ -187,6 +212,44 @@ export async function aggregatePlayByPlay(
       ]) {
         const tackler = s(play, column);
         if (tackler) bump(totals, `${tackler}|${gameId}`, "def_stuffs");
+      }
+    }
+
+    // --- Offensive line -----------------------------------------------
+    // The line has no box score anywhere, so its whole stat line is
+    // counted here: pressure the quarterback took, runs stopped at the
+    // line, chains moved, and the flags a line throws.
+    const offense = normalizeTeam(s(play, "posteam"));
+    if (offense && (isPass || isRush)) {
+      const key = `OL_${offense}|${gameId}`;
+
+      bump(totals, key, "ol_offensive_snaps");
+      if (n(play, "qb_hit") === 1) bump(totals, key, "ol_qb_hits_allowed");
+      if (isRush && yardsGained <= 0) bump(totals, key, "ol_stuffs_allowed");
+      if (n(play, "down") === 3 && n(play, "third_down_converted") === 1) {
+        bump(totals, key, "ol_third_down_conversions");
+      }
+      if (
+        inRedZone &&
+        (n(play, "rush_touchdown") === 1 || n(play, "pass_touchdown") === 1)
+      ) {
+        bump(totals, key, "ol_red_zone_tds");
+      }
+    }
+
+    // A penalty is not a pass or a rush, so this sits outside the block
+    // above -- a false start happens before there is a play at all.
+    if (offense && n(play, "penalty") === 1) {
+      const flaggedTeam = normalizeTeam(s(play, "penalty_team"));
+      const type = s(play, "penalty_type") ?? "";
+
+      if (flaggedTeam === offense && LINE_PENALTIES.has(type)) {
+        const key = `OL_${offense}|${gameId}`;
+        bump(totals, key, "ol_penalties");
+        if (type === "False Start") bump(totals, key, "ol_false_starts");
+        if (type === "Offensive Holding") {
+          bump(totals, key, "ol_holding_penalties");
+        }
       }
     }
 

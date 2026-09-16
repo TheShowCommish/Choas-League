@@ -8,7 +8,7 @@
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { STAT_CATALOG } from "../src/lib/stats/catalog.ts";
+import { STAT_APPLIES_TO, STAT_CATALOG } from "../src/lib/stats/catalog.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outFile = join(
@@ -38,6 +38,19 @@ const sql = `-- ================================================================
 -- ingestion jobs today; the rest need play-by-play aggregation.
 -- =====================================================================
 
+-- The constraint has to admit what this file is about to insert.
+--
+-- It is asserted here rather than in whichever migration introduced a
+-- new applies_to value, because this file is re-run out of order --
+-- \`db:push --redo 0010\` runs it before every later migration -- so a
+-- constraint widened in a later migration would arrive too late to help.
+-- Emitted from STAT_APPLIES_TO, so it cannot drift from the catalog.
+alter table public.stat_definitions
+  drop constraint if exists stat_definitions_applies_to_check;
+alter table public.stat_definitions
+  add constraint stat_definitions_applies_to_check
+  check (applies_to in (${STAT_APPLIES_TO.map(q).join(", ")}));
+
 insert into public.stat_definitions
   (key, label, category, description, applies_to, value_type, default_points,
    scorable, source, tracked, sort_order)
@@ -58,6 +71,28 @@ on conflict (key) do update set
 -- Remove stats that have been dropped from the catalog.
 delete from public.stat_definitions
 where key not in (${STAT_CATALOG.map((s) => q(s.key)).join(", ")});
+
+-- Give every existing league a rule for whatever was just added.
+--
+-- seed_default_scoring_rules only runs when a league is created, so
+-- without this a stat added to the catalog today would reach new
+-- leagues and no others -- see 0033. Doing it here means re-running
+-- this file is all a catalog change ever needs.
+--
+-- Only missing base rules are inserted: a commissioner who has already
+-- set a value, zero included, keeps it, and per-position overrides are
+-- left alone.
+insert into public.league_scoring_rules (league_id, stat_key, points, positions)
+select l.id, d.key, d.default_points, '{}'::text[]
+from public.leagues l
+cross join public.stat_definitions d
+where d.scorable
+  and not exists (
+    select 1 from public.league_scoring_rules r
+    where r.league_id = l.id
+      and r.stat_key = d.key
+      and cardinality(r.positions) = 0
+  );
 `;
 
 mkdirSync(dirname(outFile), { recursive: true });

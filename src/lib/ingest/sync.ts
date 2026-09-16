@@ -11,11 +11,26 @@ import {
   mapPlayerWeek,
   mapSnapCounts,
   mapTeamDefense,
+  mapTeamOffense,
   type StatMap,
 } from "./map-stats.ts";
 import { aggregatePlayByPlay } from "./pbp.ts";
 import { buildCoachGames, coachPlayerRows } from "./coaches.ts";
-import { fetchProjections, fetchSleeperIdMap } from "./sleeper.ts";
+import {
+  buildSleeperIdMap,
+  fetchProjections,
+  fetchSeasonProjections,
+  fetchSleeperPlayers,
+  injuriesFrom,
+} from "./sleeper.ts";
+import { PlayerIndex } from "./player-match.ts";
+import { fetchEspnAdp } from "./espn-adp.ts";
+import {
+  fetchMockDraftAdp,
+  matchMockAdp,
+  type MatchablePlayer,
+  type MatchedAdp,
+} from "./mock-draft-adp.ts";
 
 /**
  * The ingestion jobs.
@@ -35,6 +50,44 @@ export interface SyncResult {
   job: string;
   rows: number;
   message?: string;
+}
+
+/**
+ * Reads a whole table, a page at a time.
+ *
+ * PostgREST caps a response at 1000 rows and does it silently: no error,
+ * no truncation flag, and `.limit(10000)` does not lift it -- the cap is
+ * server-side. A plain `.select("id")` over nfl_players therefore hands
+ * back the first thousand of three and a half thousand players and looks
+ * exactly like a complete answer.
+ *
+ * That is not a hypothetical. It is why the first season-projection run
+ * wrote 147 rows out of 3300: every player past the first page was
+ * treated as somebody we had never heard of. Anything that needs "all
+ * of them" has to page, and this is the one place that knows it.
+ */
+async function selectAll<T>(
+  supabase: Admin,
+  table: string,
+  columns: string,
+): Promise<T[]> {
+  const out: T[] = [];
+  const pageSize = 1000;
+
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from(table)
+      .select(columns)
+      .range(from, from + pageSize - 1);
+
+    if (error) throw new Error(`Reading ${table}: ${error.message}`);
+    if (!data || data.length === 0) break;
+
+    out.push(...(data as T[]));
+    if (data.length < pageSize) break;
+  }
+
+  return out;
 }
 
 async function upsertInBatches(
@@ -165,6 +218,204 @@ export async function syncPlayers(season: number): Promise<SyncResult> {
 }
 
 /**
+ * Draft order: what rooms are actually doing, topped up from ESPN.
+ *
+ * The draft board opens on this. Sorting by last season's points sounds
+ * reasonable and reads terribly: it buries every rookie, buries anybody
+ * who missed the year, and puts a career-year tight end above a first
+ * round running back.
+ *
+ * Two sources, and it is a blend rather than a choice:
+ *
+ *   Fantasy Football Calculator publishes ADP averaged over the public
+ *   mock drafts it runs all summer -- eight thousand real drafts,
+ *   refreshed daily. It is the better number by a distance, so wherever
+ *   it has an opinion it wins. What it does not have is depth: a
+ *   twelve-team fifteen-round board only ever names about 270 players.
+ *
+ *   ESPN covers twelve hundred. Its number is either a real average
+ *   draft position or, outside its own drafting season, the editorial
+ *   PPR draft rank that fetchEspnAdp falls back to. Either way it is
+ *   the right shape -- roughly "which pick" -- so it fills in everybody
+ *   the mock drafts never reached, and the late rounds have an order
+ *   instead of an alphabet.
+ *
+ * The two scales are comparable by construction (both count picks from
+ * one), but the stored rank is renumbered over the merged list so it
+ * cannot disagree with the stored ADP. adp_source records which feed
+ * each row came from.
+ *
+ * Both need the player table loaded first: the mock drafts match on
+ * name and position, ESPN on the espn_id syncPlayers stores.
+ */
+export async function syncAdp(season: number): Promise<SyncResult> {
+  const supabase = createAdminClient();
+
+  return record(supabase, "sync_adp", season, null, async () => {
+    const players = await loadMatchablePlayers(supabase);
+
+    const mock = await tryMockDraftAdp(season, players);
+    const espn = await tryEspnAdp(season, players);
+
+    if (!mock && !espn) {
+      return { rows: 0, message: "Neither source published an ADP." };
+    }
+
+    // Mock drafts first, so a player both feeds know keeps the number
+    // that came out of a real room.
+    const merged = new Map<string, MatchedAdp>();
+    for (const row of mock?.rows ?? []) merged.set(row.id, row);
+    for (const row of espn?.rows ?? []) {
+      if (!merged.has(row.id)) merged.set(row.id, row);
+    }
+
+    const rows = [...merged.values()].sort((a, b) => a.adp - b.adp);
+    rows.forEach((row, index) => {
+      row.adp_rank = index + 1;
+    });
+
+    /*
+     * An UPDATE, not an upsert.
+     *
+     * The obvious `upsert({ id, adp, ... }, { onConflict: "id" })` cannot
+     * work here: Postgres validates the proposed row before it looks for
+     * a conflict, so a payload without full_name trips that column's NOT
+     * NULL constraint even though every one of these players already
+     * exists. See 0035.
+     */
+    const { data: written, error } = await supabase.rpc("set_player_adp", {
+      p_rows: rows,
+    });
+
+    if (error) throw new Error(`Writing ADP: ${error.message}`);
+
+    const parts = [mock?.message, espn?.message].filter(Boolean);
+    return {
+      rows: Number(written ?? 0),
+      message: `${parts.join("; ")}; ${written} written`,
+    };
+  });
+}
+
+/**
+ * Sleeper's ids, resolved onto ours.
+ *
+ * Wanted by three jobs, and none of them can do it alone: it needs the
+ * whole player table (paged), the whole Sleeper dump, and the matcher
+ * that reconciles the two. Fetched once here rather than three times
+ * over.
+ */
+async function sleeperMapping(supabase: Admin) {
+  const players = await loadMatchablePlayers(supabase);
+  const knownIds = new Set(players.map((p) => p.id));
+  const rows = await fetchSleeperPlayers();
+  const idMap = buildSleeperIdMap(rows, new PlayerIndex(players), knownIds);
+
+  return { rows, idMap, knownIds };
+}
+
+/** Every player the ADP matchers might need to recognise. */
+async function loadMatchablePlayers(
+  supabase: Admin,
+): Promise<(MatchablePlayer & { espn_id: string | null })[]> {
+  return selectAll<MatchablePlayer & { espn_id: string | null }>(
+    supabase,
+    "nfl_players",
+    "id, full_name, position, team_abbr, espn_id",
+  );
+}
+
+/**
+ * Mock-draft ADP, or null if there is none to be had.
+ *
+ * Deliberately swallows its own failure, as does its ESPN counterpart.
+ * One unofficial third-party feed being down, or having no drafts yet
+ * for a season that has only just turned over, is the ordinary case
+ * rather than an error -- and there is a second source alongside it.
+ */
+async function tryMockDraftAdp(
+  season: number,
+  players: MatchablePlayer[],
+): Promise<{ rows: MatchedAdp[]; message: string } | null> {
+  let result;
+  try {
+    result = await fetchMockDraftAdp(season);
+  } catch {
+    return null;
+  }
+
+  if (result.entries.length === 0 || result.totalDrafts === 0) return null;
+
+  const { rows, unmatched } = matchMockAdp(result, players);
+  if (rows.length === 0) return null;
+
+  return {
+    rows,
+    message:
+      `${rows.length} from ${result.totalDrafts} ` +
+      `${result.teams}-team ${result.scoring} mock drafts` +
+      (unmatched.length > 0 ? ` (${unmatched.length} unknown to us)` : ""),
+  };
+}
+
+/** ESPN's ordering, matched onto our ids by athlete id. */
+async function tryEspnAdp(
+  season: number,
+  players: (MatchablePlayer & { espn_id: string | null })[],
+): Promise<{ rows: MatchedAdp[]; message: string } | null> {
+  let entries;
+  try {
+    entries = await fetchEspnAdp(season);
+  } catch {
+    return null;
+  }
+
+  if (entries.length === 0) return null;
+
+  const byEspnId = new Map<string, string>();
+  for (const player of players) {
+    if (player.espn_id) byEspnId.set(String(player.espn_id), player.id);
+  }
+
+  const rows: MatchedAdp[] = [];
+  const seen = new Set<string>();
+  let unmatched = 0;
+
+  for (const entry of entries) {
+    const playerId = entry.defenseTeam
+      ? `DST_${entry.defenseTeam}`
+      : entry.espnId
+        ? byEspnId.get(entry.espnId)
+        : undefined;
+
+    // Somebody ESPN carries and nflverse does not, or a player whose
+    // espn_id we have never been given. Nothing to attach the number to.
+    if (!playerId || seen.has(playerId)) {
+      if (!playerId) unmatched++;
+      continue;
+    }
+
+    seen.add(playerId);
+    rows.push({
+      id: playerId,
+      adp: entry.adp,
+      adp_rank: entry.rank,
+      adp_source: entry.source,
+    });
+  }
+
+  const source =
+    entries[0].source === "espn" ? "live ADP" : "editorial draft rank";
+
+  return {
+    rows,
+    message:
+      `${rows.length} from ESPN by ${source}` +
+      (unmatched > 0 ? ` (${unmatched} unknown to us)` : ""),
+  };
+}
+
+/**
  * Weekly projections from Sleeper.
  *
  * Stored as a stat line rather than a points total so each league scores
@@ -179,31 +430,32 @@ export async function syncProjections(
   const supabase = createAdminClient();
 
   return record(supabase, "sync_projections", season, week, async () => {
-    const idMap = await fetchSleeperIdMap();
+    const { rows: dump, idMap, knownIds } = await sleeperMapping(supabase);
 
-    // gsis -> sleeper, for the column on nfl_players.
-    const bySleeper: Record<string, unknown>[] = [];
-    for (const [sleeperId, gsisId] of idMap) {
-      bySleeper.push({ id: gsisId, sleeper_id: sleeperId });
-    }
-
-    // Only rows we already hold; an upsert would otherwise invent
-    // players with no name, which violates the not-null on full_name.
-    const { data: known } = await supabase.from("nfl_players").select("id");
-    const knownIds = new Set((known ?? []).map((p) => p.id as string));
+    /*
+     * Backfill sleeper_id on the way through, since the mapping has to
+     * be built anyway and nothing else populates that column.
+     *
+     * An update per row rather than an upsert: nfl_players.full_name is
+     * NOT NULL and an upsert validates the proposed row before it looks
+     * for a conflict. Same trap as ADP -- see 0035. Only rows whose
+     * mapping is new are written.
+     */
+    const held = await selectAll<{ id: string; sleeper_id: string | null }>(
+      supabase,
+      "nfl_players",
+      "id, sleeper_id",
+    );
+    const heldSleeperId = new Map(held.map((r) => [r.id, r.sleeper_id]));
 
     let mapped = 0;
-    for (const row of bySleeper) {
-      if (!knownIds.has(row.id as string)) continue;
+    for (const [sleeperId, playerId] of idMap) {
+      if (heldSleeperId.get(playerId) === sleeperId) continue;
       mapped++;
-    }
-
-    const updates = bySleeper.filter((r) => knownIds.has(r.id as string));
-    for (let i = 0; i < updates.length; i += BATCH) {
-      const chunk = updates.slice(i, i + BATCH);
       const { error } = await supabase
         .from("nfl_players")
-        .upsert(chunk, { onConflict: "id" });
+        .update({ sleeper_id: sleeperId })
+        .eq("id", playerId);
       if (error) throw new Error(`sleeper_id backfill: ${error.message}`);
     }
 
@@ -231,7 +483,142 @@ export async function syncProjections(
 
     return {
       rows: written,
-      message: `${written} projections, ${mapped} sleeper ids mapped`,
+      message:
+        `${written} of ${projections.length} projected players matched ` +
+        `(${idMap.size} of ${dump.length} Sleeper ids resolved, ` +
+        `${mapped} newly linked)`,
+    };
+  });
+}
+
+/**
+ * A projection for the whole season, from Sleeper.
+ *
+ * This is the number a draft board wants. A weekly projection says
+ * nothing useful in August, and last season's points say nothing about
+ * a rookie -- what a manager reaching for a player in round three is
+ * actually asking is "what does this year look like".
+ *
+ * Stored as a stat line for the same reason as the weekly one: points
+ * belong to a league's rules, not to the feed. See 0036.
+ */
+export async function syncSeasonProjections(
+  season: number,
+): Promise<SyncResult> {
+  const supabase = createAdminClient();
+
+  return record(supabase, "sync_season_projections", season, null, async () => {
+    const { rows: dump, idMap, knownIds } = await sleeperMapping(supabase);
+    const projections = await fetchSeasonProjections(season, idMap);
+
+    // Only players we hold: the table's foreign key would reject the
+    // rest, and a college prospect is no use on a draft board anyway.
+    const rows = projections
+      .filter((p) => knownIds.has(p.playerId))
+      .map((p) => ({
+        player_id: p.playerId,
+        season,
+        stats: p.stats,
+        source_points: p.sourcePoints,
+        source: "sleeper",
+        updated_at: new Date().toISOString(),
+      }));
+
+    const written = await upsertInBatches(
+      supabase,
+      "player_season_projections",
+      rows,
+      "player_id,season",
+    );
+
+    return {
+      rows: written,
+      message:
+        `${written} of ${projections.length} projected players matched ` +
+        `(${idMap.size} of ${dump.length} Sleeper ids resolved)`,
+    };
+  });
+}
+
+/**
+ * Injuries, from Sleeper's player dump.
+ *
+ * Only players whose condition has actually changed are written. The
+ * dump carries four thousand players and a handful of them are hurt, so
+ * writing all four thousand rows to move six designations would be a
+ * lot of traffic to say nothing.
+ */
+export async function syncInjuries(): Promise<SyncResult> {
+  const supabase = createAdminClient();
+
+  return record(supabase, "sync_injuries", null, null, async () => {
+    const { rows: dump, idMap } = await sleeperMapping(supabase);
+    const injuries = injuriesFrom(dump, idMap);
+
+    const current = await selectAll<{
+      id: string;
+      injury_status: string | null;
+      injury_body_part: string | null;
+      injury_notes: string | null;
+    }>(
+      supabase,
+      "nfl_players",
+      "id, injury_status, injury_body_part, injury_notes",
+    );
+
+    const held = new Map(
+      current.map((row) => [
+        row.id,
+        {
+          status: row.injury_status ?? null,
+          bodyPart: row.injury_body_part ?? null,
+          notes: row.injury_notes ?? null,
+        },
+      ]),
+    );
+
+    const rows: Record<string, unknown>[] = [];
+    let hurt = 0;
+
+    for (const injury of injuries) {
+      const was = held.get(injury.playerId);
+      if (!was) continue;
+      if (injury.status) hurt++;
+
+      const unchanged =
+        was.status === injury.status &&
+        was.bodyPart === injury.bodyPart &&
+        was.notes === injury.notes;
+      if (unchanged) continue;
+
+      rows.push({
+        id: injury.playerId,
+        injury_status: injury.status,
+        injury_body_part: injury.bodyPart,
+        injury_notes: injury.notes,
+        injury_start_date: injury.startDate,
+        practice_participation: injury.practice,
+        injury_updated_at: new Date().toISOString(),
+      });
+    }
+
+    // An update per changed row, not an upsert: nfl_players.full_name is
+    // NOT NULL and an upsert validates the proposed row before it looks
+    // for a conflict. Same trap as ADP -- see 0035.
+    for (let i = 0; i < rows.length; i += BATCH) {
+      for (const row of rows.slice(i, i + BATCH)) {
+        const { id, ...fields } = row;
+        const { error } = await supabase
+          .from("nfl_players")
+          .update(fields)
+          .eq("id", id as string);
+        if (error) throw new Error(`Injury for ${id}: ${error.message}`);
+      }
+    }
+
+    return {
+      rows: rows.length,
+      message: `${hurt} players carrying a designation, ${rows.length} changed`,
     };
   });
 }
@@ -403,6 +790,7 @@ export async function syncWeekStats(
     // Play-by-play counters for team defenses and head coaches, folded
     // in once those rows are built further down.
     const pbpDefense = new Map<string, StatMap>();
+    const pbpOffense = new Map<string, StatMap>();
     const pbpCoaches = new Map<string, StatMap>();
 
     // The charting feeds are keyed by pfr_player_id, so translate.
@@ -428,6 +816,8 @@ export async function syncWeekStats(
       } else if (playerId.startsWith("DST_")) {
         // D/ST lines are built later, so stash these for that pass.
         pbpDefense.set(key, stats);
+      } else if (playerId.startsWith("OL_")) {
+        pbpOffense.set(key, stats);
       } else if (playerId.startsWith("HC_")) {
         pbpCoaches.set(key, stats);
       }
@@ -501,9 +891,18 @@ export async function syncWeekStats(
       }
     }
 
-    const defenseRows = (
-      await buildTeamDefenseRows(supabase, season, week, pbpDefense)
-    ).filter((row) => knownGames.has(row.game_id as string));
+    // One pass over the weekly team file produces both team units: a
+    // D/ST reads it as what the opponent was allowed to do, an O-line as
+    // what its own offense managed.
+    const units = await buildTeamUnitRows(
+      supabase, season, week, pbpDefense, pbpOffense,
+    );
+    const defenseRows = units.defense.filter((row) =>
+      knownGames.has(row.game_id as string),
+    );
+    const offenseRows = units.offense.filter((row) =>
+      knownGames.has(row.game_id as string),
+    );
 
     // Head coaches. The pseudo-player rows go in first: a stat line
     // referencing HC_<abbr> needs that player to exist.
@@ -529,7 +928,7 @@ export async function syncWeekStats(
         updated_at: now,
       }));
 
-    const all = [...statRows, ...defenseRows, ...coachRows];
+    const all = [...statRows, ...defenseRows, ...offenseRows, ...coachRows];
 
     const written = await upsertInBatches(
       supabase,
@@ -556,20 +955,31 @@ export async function syncWeekStats(
       rows: written,
       message:
         `${statRows.length} player lines, ${defenseRows.length} D/ST, ` +
-        `${coachRows.length} coaches, ` +
+        `${offenseRows.length} O-lines, ${coachRows.length} coaches, ` +
         `${pbp.size} play-by-play totals, rescored ${weeks.length} week(s)` +
         (skippedGames > 0 ? `, skipped ${skippedGames} unknown games` : ""),
     };
   });
 }
 
-/** Builds the DST_<abbr> pseudo-player stat lines for a week. */
-async function buildTeamDefenseRows(
+/**
+ * Builds the two team-unit stat lines for a week.
+ *
+ * DST_<abbr> and OL_<abbr> both come out of the same weekly team file,
+ * read from opposite ends: the defense's line is what the opponent was
+ * allowed to do, the line's is what its own offense managed. Building
+ * them together means streaming that file once rather than twice.
+ */
+async function buildTeamUnitRows(
   supabase: Admin,
   season: number,
   week: number | null,
   pbpDefense: Map<string, StatMap>,
-): Promise<Record<string, unknown>[]> {
+  pbpOffense: Map<string, StatMap>,
+): Promise<{
+  defense: Record<string, unknown>[];
+  offense: Record<string, unknown>[];
+}> {
   // team|game -> its own offensive output, so we can read the opponent's
   // row as "yards allowed".
   const offense = new Map<string, { passYards: number; rushYards: number }>();
@@ -591,7 +1001,7 @@ async function buildTeamDefenseRows(
     });
   }
 
-  if (teamRows.size === 0) return [];
+  if (teamRows.size === 0) return { defense: [], offense: [] };
 
   // Final scores, for points allowed.
   let gameQuery = supabase
@@ -610,7 +1020,8 @@ async function buildTeamDefenseRows(
   }
 
   const now = new Date().toISOString();
-  const rows: Record<string, unknown>[] = [];
+  const defenseRows: Record<string, unknown>[] = [];
+  const offenseRows: Record<string, unknown>[] = [];
 
   for (const [key, row] of teamRows) {
     const [team, gameId] = key.split("|");
@@ -624,8 +1035,7 @@ async function buildTeamDefenseRows(
     // line to write; skip rather than record a misleading shutout.
     if (!opponentOffense || pointsAllowed === undefined) continue;
 
-    rows.push({
-      player_id: `DST_${team}`,
+    const common = {
       game_id: gameId,
       season: n(row, "season"),
       week: n(row, "week"),
@@ -633,6 +1043,12 @@ async function buildTeamDefenseRows(
       team_abbr: team,
       opponent,
       source: "final",
+      updated_at: now,
+    };
+
+    defenseRows.push({
+      ...common,
+      player_id: `DST_${team}`,
       stats: {
         ...mapTeamDefense(row, {
           points: pointsAllowed,
@@ -641,11 +1057,38 @@ async function buildTeamDefenseRows(
         }),
         ...(pbpDefense.get(`DST_${team}|${gameId}`) ?? {}),
       },
-      updated_at: now,
+    });
+
+    // This team's own score is what the opponent was allowed.
+    const pointsScored = scoreByTeamGame.get(`${opponent}|${gameId}`);
+    if (pointsScored === undefined) continue;
+
+    const lineStats: StatMap = {
+      ...mapTeamOffense(row, { points: pointsScored }),
+      ...(pbpOffense.get(`OL_${team}|${gameId}`) ?? {}),
+    };
+
+    // A clean pocket needs both halves -- sacks from the box score, hits
+    // from the plays -- so it can only be worked out once they are
+    // together.
+    const dropbacks = lineStats.ol_dropbacks ?? 0;
+    if (dropbacks > 0) {
+      const pressures =
+        (lineStats.ol_sacks_allowed ?? 0) + (lineStats.ol_qb_hits_allowed ?? 0);
+      lineStats.ol_pressure_free_rate =
+        Math.round(
+          Math.max(0, (dropbacks - pressures) / dropbacks) * 10000,
+        ) / 100;
+    }
+
+    offenseRows.push({
+      ...common,
+      player_id: `OL_${team}`,
+      stats: lineStats,
     });
   }
 
-  return rows;
+  return { defense: defenseRows, offense: offenseRows };
 }
 
 async function loadPfrMap(supabase: Admin): Promise<Map<string, string>> {

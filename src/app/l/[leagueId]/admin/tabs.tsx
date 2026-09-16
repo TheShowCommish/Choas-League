@@ -108,6 +108,7 @@ export function AdminTabs({
           <PlayoffRounds
             leagueId={league.id}
             startWeek={league.playoff_start_week}
+            playoffTeams={league.playoff_teams}
             rounds={playoffRounds}
           />
         </>}

@@ -2,7 +2,10 @@ import Link from "next/link";
 import { getLeagueContext } from "@/lib/league";
 import { getTeamRoster } from "@/lib/roster";
 import { createClient } from "@/lib/supabase/server";
-import type { WaiverClaim } from "@/lib/types";
+import { positionLabel } from "@/lib/roster-slots";
+import type { Team, WaiverClaim } from "@/lib/types";
+import { FreeAgentCrest, NflCrest } from "../nfl-crest";
+import { TeamCrest } from "../team-theme";
 import { PlayerFilters } from "./filters";
 import { PlayerActions } from "./player-actions";
 import { PendingClaims } from "./pending-claims";
@@ -48,7 +51,7 @@ export default async function PlayersPage({
 }) {
   const { leagueId } = await params;
   const sp = await searchParams;
-  const { league, myTeam } = await getLeagueContext(leagueId);
+  const { league, myTeam, teams } = await getLeagueContext(leagueId);
   const supabase = await createClient();
 
   const page = Math.max(Number(sp.page) || 1, 1);
@@ -69,7 +72,10 @@ export default async function PlayersPage({
         p_team: sp.team || null,
         p_dir: dir,
       }),
-      supabase.rpc("available_positions"),
+      // fantasy_positions rather than available_positions: the menu
+      // should offer the positions a league can roster, not every
+      // position the NFL employs.
+      supabase.rpc("fantasy_positions"),
       supabase.rpc("available_nfl_teams"),
       myTeam
         ? supabase
@@ -92,8 +98,12 @@ export default async function PlayersPage({
 
   const dropOptions = myRoster.map((r) => ({
     playerId: r.playerId,
-    label: `${r.player.full_name} (${r.player.position ?? "?"})`,
+    label: `${r.player.full_name} (${positionLabel(r.player.position)})`,
   }));
+
+  // Crests for the owner column: the pool RPC returns the owning team's
+  // id and name, and the league context already has the rest.
+  const teamById = new Map(teams.map((t) => [t.id, t] as const));
 
   const pendingClaims = (claims ?? []) as WaiverClaim[];
   const playerNames = new Map(rows.map((r) => [r.player_id, r.full_name]));
@@ -137,12 +147,19 @@ export default async function PlayersPage({
       <div className="card-tight table-scroll">
         <table className="table">
           <thead>
+            {/*
+              Only the three number columns sort. The other five sorted
+              the whole pool of several thousand by a field nobody
+              actually wants ranked -- surname, or which NFL club a man
+              plays for -- and the round trip that took was the price of
+              a mis-click. What people sort by is production.
+            */}
             <tr>
-              <SortHeader column="name" label="Player" defaultDir="asc" />
-              <SortHeader column="position" label="Pos" defaultDir="asc" />
-              <SortHeader column="team" label="Team" defaultDir="asc" />
-              <SortHeader column="owner" label="Status" defaultDir="asc" />
-              <SortHeader column="kickoff" label="Next" defaultDir="asc" />
+              <th>Player</th>
+              <th>Pos</th>
+              <th>Team</th>
+              <th>Status</th>
+              <th>Next</th>
               <SortHeader column="last" label="Last" className="text-right" />
               <SortHeader column="average" label="Avg" className="text-right" />
               <SortHeader column="points" label="Total" className="text-right" />
@@ -169,17 +186,25 @@ export default async function PlayersPage({
                   </Link>
                 </td>
 
-                <td className="text-xs">{row.pos ?? "?"}</td>
-                <td className="text-xs">{row.team_abbr ?? "FA"}</td>
+                <td className="text-xs">{positionLabel(row.pos)}</td>
 
                 <td className="text-xs">
-                  {row.owner_team_name ? (
-                    <span className="text-muted">{row.owner_team_name}</span>
-                  ) : row.on_waivers ? (
-                    <span className="text-negative">Waivers</span>
-                  ) : (
-                    <span className="text-positive">Free agent</span>
-                  )}
+                  <span className="flex items-center gap-1.5">
+                    <NflCrest abbr={row.team_abbr} />
+                    <span>{row.team_abbr ?? "FA"}</span>
+                  </span>
+                </td>
+
+                <td className="text-xs">
+                  <OwnerCell
+                    team={
+                      row.owner_team_id
+                        ? (teamById.get(row.owner_team_id) ?? null)
+                        : null
+                    }
+                    ownerName={row.owner_team_name}
+                    onWaivers={row.on_waivers}
+                  />
                 </td>
 
                 <td className="whitespace-nowrap text-xs">
@@ -222,6 +247,57 @@ export default async function PlayersPage({
 
       <Pagination page={page} pageCount={pageCount} searchParams={sp} />
     </div>
+  );
+}
+
+/**
+ * Who owns him: the fantasy club's crest and name, or the badge that
+ * says nobody does.
+ *
+ * The crest is the point of the column. Scanning a page of fifty for
+ * "is this one already gone" reads far faster off a shape and a colour
+ * than off eleven team names in the same grey.
+ */
+function OwnerCell({
+  team,
+  ownerName,
+  onWaivers,
+}: {
+  team: Team | null;
+  ownerName: string | null;
+  onWaivers: boolean;
+}) {
+  if (team) {
+    return (
+      <span className="flex items-center gap-1.5">
+        <TeamCrest
+          logoUrl={team.logo_url}
+          abbreviation={team.abbreviation}
+          name={team.name}
+          color={team.color}
+          secondary={team.secondary_color}
+          size={20}
+        />
+        <span className="truncate text-muted">{team.name}</span>
+      </span>
+    );
+  }
+
+  // A team the context could not resolve -- removed mid-season, say.
+  if (ownerName) {
+    return <span className="text-muted">{ownerName}</span>;
+  }
+
+  return (
+    <span className="flex items-center gap-1.5">
+      <FreeAgentCrest
+        label={onWaivers ? "W" : "FA"}
+        title={onWaivers ? "On waivers" : "Free agent"}
+      />
+      <span className={onWaivers ? "text-negative" : "text-positive"}>
+        {onWaivers ? "Waivers" : "Free agent"}
+      </span>
+    </span>
   );
 }
 

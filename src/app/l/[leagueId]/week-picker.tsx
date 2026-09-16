@@ -65,3 +65,86 @@ export function WeekPicker({
     </div>
   );
 }
+
+/**
+ * The same choice as a row of buttons rather than a menu.
+ *
+ * A season is seventeen weeks, which is few enough to show all of them
+ * and one fewer interaction than a select: no open, scan, pick. The row
+ * scrolls sideways on a phone and the playoff weeks are separated off,
+ * because "week 15" and "the semi-final" are different kinds of thing
+ * to be looking for.
+ */
+export function WeekTabs({
+  week,
+  lastWeek,
+  currentWeek,
+  playoffStartWeek,
+}: {
+  week: number;
+  lastWeek: number;
+  currentWeek: number;
+  /** The first week that is a playoff round, marked off from the rest. */
+  playoffStartWeek: number;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+
+  const weeks = Array.from({ length: lastWeek }, (_, i) => i + 1);
+
+  function go(next: number) {
+    const query = new URLSearchParams(params);
+    query.set("week", String(next));
+    router.push(`${pathname}?${query}`);
+  }
+
+  return (
+    <div className="table-scroll">
+      <div className="flex items-center gap-1" role="group" aria-label="Week">
+        {/* The buttons are bare numbers so eighteen of them fit; this is
+            what says what the numbers are. */}
+        <span className="muted mr-1 shrink-0 text-xs tracking-wide uppercase">
+          Week
+        </span>
+        {weeks.map((w) => (
+          <span key={w} className="contents">
+            {w === playoffStartWeek && w !== 1 && (
+              <span
+                aria-hidden
+                className="mx-1 h-6 w-px shrink-0 bg-border"
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => go(w)}
+              aria-current={w === week ? "page" : undefined}
+              title={
+                w === currentWeek
+                  ? `Week ${w} -- the live week`
+                  : w >= playoffStartWeek
+                    ? `Week ${w} -- playoffs`
+                    : `Week ${w}`
+              }
+              className={`min-h-9 shrink-0 rounded-md border px-2.5 text-sm whitespace-nowrap transition-colors ${
+                w === week
+                  ? "border-transparent bg-accent font-semibold text-accent-ink"
+                  : "border-border bg-surface-2 text-muted hover:text-foreground"
+              }`}
+            >
+              {w}
+              {w === currentWeek && (
+                <span
+                  aria-hidden
+                  className={`ml-1 inline-block size-1.5 rounded-full align-middle ${
+                    w === week ? "bg-accent-ink" : "bg-accent"
+                  }`}
+                />
+              )}
+            </button>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}

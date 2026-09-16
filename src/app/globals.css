@@ -7,7 +7,24 @@
  * Everything is mobile-first; wide layouts are the md: exception.
  */
 
-:root {
+/*
+ * Three themes, one set of tokens.
+ *
+ * Dark is the default and the one everything was designed against.
+ * Light is the same palette inverted. Team paints the whole app in the
+ * colours of the manager's own franchise: the surfaces are the dark
+ * ramp mixed with the primary colour, and the accent is the secondary
+ * lifted towards white so it stays legible on top of them.
+ *
+ * The team theme reads --team and --team-2, which the league layout
+ * writes from the signed-in manager's team. The fallbacks here are what
+ * a visitor without a team gets, and keep the theme from collapsing to
+ * a black-on-black page if those are ever missing.
+ */
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
   --background: #0b0d10;
   --surface: #14181d;
   --surface-2: #1c2228;
@@ -15,8 +32,50 @@
   --foreground: #e8eaed;
   --muted: #9aa5b1;
   --accent: #4f8ef7;
+  /* What is legible written on top of --accent. */
+  --accent-ink: #ffffff;
   --positive: #3fb950;
   --negative: #f85149;
+}
+
+/* The default franchise colours, overridden per league. */
+:root {
+  --team: #4f8ef7;
+  --team-2: #2a5db0;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --background: #f4f6f9;
+  --surface: #ffffff;
+  --surface-2: #eef1f6;
+  --border: #d3dae3;
+  --foreground: #10151b;
+  --muted: #55606d;
+  --accent: #1d63d8;
+  --accent-ink: #ffffff;
+  --positive: #197f36;
+  --negative: #c62f26;
+}
+
+[data-theme="team"] {
+  color-scheme: dark;
+
+  --background: color-mix(in srgb, var(--team) 10%, #07090c);
+  --surface: color-mix(in srgb, var(--team) 14%, #12161b);
+  --surface-2: color-mix(in srgb, var(--team) 22%, #191e25);
+  --border: color-mix(in srgb, var(--team) 34%, #2a323b);
+  --foreground: #f3f5f8;
+  --muted: color-mix(in srgb, var(--team) 20%, #a3adb8);
+  /* Lifted towards white: plenty of second colours are near-black, and
+     an accent nobody can see is worse than one slightly off-brand. That
+     leaves it too light to write white on, hence the dark ink -- which
+     is why the ink is a token rather than a hard-coded text-white. */
+  --accent: color-mix(in srgb, var(--team-2) 62%, #ffffff);
+  --accent-ink: #0b0d10;
+  --positive: #4cc45e;
+  --negative: #ff6a60;
 }
 
 @theme inline {
@@ -27,6 +86,7 @@
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
   --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
   --color-positive: var(--positive);
   --color-negative: var(--negative);
   --font-sans: var(--font-geist-sans);
@@ -57,7 +117,7 @@ body {
   }
 
   .btn-primary {
-    @apply border-transparent bg-accent text-white hover:bg-accent/85;
+    @apply border-transparent bg-accent text-accent-ink hover:bg-accent/85;
   }
 
   .btn-danger {

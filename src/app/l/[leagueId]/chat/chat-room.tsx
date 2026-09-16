@@ -113,7 +113,7 @@ export function ChatRoom({
                 <p
                   className={`inline-block max-w-[85%] rounded-lg px-3 py-2 text-sm whitespace-pre-wrap ${
                     message.user_id === userId
-                      ? "bg-accent text-white"
+                      ? "bg-accent text-accent-ink"
                       : "bg-surface-2"
                   }`}
                 >

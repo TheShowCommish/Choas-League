@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { positionLabel, sortPositions } from "@/lib/roster-slots";
 
 const AVAILABILITY = [
   { value: "available", label: "Free agents" },
@@ -83,9 +84,17 @@ export function PlayerFilters({
             onChange={(e) => update({ pos: e.target.value })}
           >
             <option value="">All positions</option>
-            {positions.map((p) => (
+            {/*
+              Flex is not a position. It stands for whatever this
+              league's flex slots accept, which the pool resolves per
+              league rather than assuming RB/WR/TE. It is sorted in with
+              the rest so the menu reads QB, RB, WR, TE, FLEX, D/ST, K,
+              P, HC -- the order a lineup card does -- rather than
+              alphabetically, or with flex bolted on the front.
+            */}
+            {sortPositions([...positions, "FLEX"]).map((p) => (
               <option key={p} value={p}>
-                {p}
+                {p === "FLEX" ? "Flex eligible" : positionLabel(p)}
               </option>
             ))}
           </select>
@@ -111,7 +120,7 @@ export function PlayerFilters({
         </div>
       </div>
       <p className="muted text-xs">
-        Sort by any column using its heading.
+        Sort by last week, average or season total using those headings.
       </p>
     </div>
   );

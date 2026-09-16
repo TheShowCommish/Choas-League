@@ -3,7 +3,8 @@
 import { useActionState, useMemo, useState, useTransition } from "react";
 import type { RosterEntry } from "@/lib/roster";
 import type { RosterSlot } from "@/lib/types";
-import { expandSlots, slotAccepts } from "@/lib/roster-slots";
+import { expandSlots, positionLabel, slotAccepts } from "@/lib/roster-slots";
+import { autoFill, type LineupSpot } from "@/lib/lineup";
 import { saveLineup, dropPlayerById, type LineupResult } from "./actions";
 
 const empty: LineupResult = {};
@@ -17,6 +18,13 @@ const empty: LineupResult = {};
  * takes the incomer's place. That is the same gesture whether you are
  * filling an empty slot, benching a starter or swapping two starters,
  * which is why there is no separate "bench" or "start" action.
+ *
+ * Nobody sits outside the board. A player with no saved slot is dealt
+ * into one on arrival -- the best available into each empty starting
+ * spot, everyone else onto the bench -- so "on the roster but nowhere"
+ * is not a state anybody discovers on a Sunday morning. The only players
+ * left over are the ones a full roster genuinely has no room for, and
+ * they are named as exactly that.
  */
 export function LineupEditor({
   leagueId,
@@ -61,8 +69,23 @@ export function LineupEditor({
     for (const spot of spots) {
       next[spot.key] = remaining.get(spot.slotKey)?.shift() ?? null;
     }
-    return next;
+
+    // Anybody the saved lineup did not account for gets a seat now,
+    // rather than sitting in a limbo the scoring engine ignores.
+    return autoFill(next, spots, roster);
   });
+
+  /*
+   * Whether that dealing actually moved anybody.
+   *
+   * Only worth saying so when it did: a lineup that came back exactly as
+   * it was saved does not need a banner announcing that nothing
+   * happened. Held in state so it describes the seed rather than
+   * flickering off as soon as you touch a slot.
+   */
+  const [autoFilled] = useState(
+    () => roster.filter((entry) => !entry.slotKey).length > 0,
+  );
 
   const [openSpot, setOpenSpot] = useState<string | null>(null);
 
@@ -102,6 +125,12 @@ export function LineupEditor({
     setOpenSpot(null);
   }
 
+  /** Seats everyone the board can still take. */
+  function fillGaps() {
+    setPlaced((prev) => autoFill(prev, spots, roster));
+    setOpenSpot(null);
+  }
+
   const starterSpots = spots.filter((s) => s.isStarter);
 
   const projectedTotal = starterSpots.reduce((sum, spot) => {
@@ -137,12 +166,24 @@ export function LineupEditor({
           Starters {starterSpots.length - emptyStarters}/{starterSpots.length}
         </span>
         {emptyStarters > 0 && (
-          <span className="pill border-negative text-negative">
-            {emptyStarters} empty
-          </span>
+          <>
+            <span className="pill border-negative text-negative">
+              {emptyStarters} empty
+            </span>
+            <button type="button" className="btn btn-sm" onClick={fillGaps}>
+              Fill the gaps
+            </button>
+          </>
         )}
         <span className="pill ml-auto">{projectedTotal.toFixed(1)} pts</span>
       </div>
+
+      {autoFilled && (
+        <p className="ok-box">
+          Players who had no slot have been placed for you &mdash; starters
+          first, the rest on the bench. Nothing is kept until you save.
+        </p>
+      )}
 
       <SpotList
         title="Starters"
@@ -174,10 +215,11 @@ export function LineupEditor({
 
       {unassigned.length > 0 && (
         <section>
-          <h2 className="h2 mb-2">Not in the lineup</h2>
+          <h2 className="h2 mb-2">No room on the roster</h2>
           <p className="muted mb-2 text-sm">
-            More players than spots. These score nothing until you find them
-            somewhere to sit.
+            More players than the roster has places for, so there is nowhere
+            left to seat these. They score nothing. Drop one, or ask the
+            commissioner for a bigger bench.
           </p>
           <ul className="card-tight divide-y divide-border/60">
             {unassigned.map((entry) => (
@@ -206,14 +248,6 @@ export function LineupEditor({
   );
 }
 
-interface Spot {
-  key: string;
-  slotKey: string;
-  label: string;
-  isStarter: boolean;
-  eligiblePositions: string[];
-}
-
 function SpotList({
   title,
   spots,
@@ -228,7 +262,7 @@ function SpotList({
   teamId,
 }: {
   title: string;
-  spots: Spot[];
+  spots: LineupSpot[];
   placed: Record<string, string | null>;
   byPlayer: Map<string, RosterEntry>;
   openSpot: string | null;
@@ -354,7 +388,8 @@ function PlayerLine({ entry }: { entry: RosterEntry }) {
         {entry.player.full_name}
       </span>
       <span className="muted block truncate text-xs">
-        {entry.player.position ?? "?"} &middot; {entry.player.team_abbr ?? "FA"}
+        {positionLabel(entry.player.position)} &middot;{" "}
+        {entry.player.team_abbr ?? "FA"}
         {onBye ? (
           <span className="text-negative"> &middot; BYE</span>
         ) : (

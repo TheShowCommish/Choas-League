@@ -57,14 +57,37 @@ export interface Team {
   owner_id: string | null;
   name: string;
   abbreviation: string;
+  /** Where the franchise plays. Free text -- managers set their own. */
+  city: string;
   logo_url: string | null;
-  /** Hex, '#RRGGBB'. The team's accent colour through the UI. */
+  /** Hex, '#RRGGBB'. The team's main colour through the UI. */
   color: string;
+  /** Hex, '#RRGGBB'. The second half of the team's palette. */
+  secondary_color: string;
+  /** How autopick chooses once this team's queue has nothing due. */
+  autodraft_strategy: AutodraftStrategy;
   /** Which generic slot this was, so "Team 7" keeps its place once renamed. */
   slot_number: number | null;
   faab_remaining: number;
   waiver_priority: number;
 }
+
+/**
+ * What autopick reaches for when the queue is empty or nothing in it is
+ * due this round.
+ *
+ *   adp         -- the order the room is drafting in
+ *   last_season -- what the player actually scored last year
+ *   projection  -- what this season is projected to bring, scored with
+ *                  this league's own rules
+ */
+export type AutodraftStrategy = "adp" | "last_season" | "projection";
+
+export const AUTODRAFT_LABELS: Record<AutodraftStrategy, string> = {
+  adp: "Best available by ADP",
+  last_season: "Most points last season",
+  projection: "Most projected points this season",
+};
 
 export interface RosterSlot {
   id: string;
@@ -90,6 +113,22 @@ export interface NflPlayer {
   /** Cross-source ids, for the research feeds. Either may be absent. */
   espn_id: string | null;
   sleeper_id: string | null;
+  /**
+   * Average draft position -- mock drafts where there are any, ESPN
+   * otherwise. Null for anyone off the board.
+   */
+  adp: number | null;
+  adp_rank: number | null;
+  /**
+   * The player's current condition, refreshed by the injury job. Every
+   * field is null for anybody healthy.
+   */
+  injury_status: string | null;
+  injury_body_part: string | null;
+  injury_notes: string | null;
+  injury_start_date: string | null;
+  practice_participation: string | null;
+  injury_updated_at: string | null;
 }
 
 export interface NflGame {
@@ -130,7 +169,12 @@ export interface Matchup {
   id: string;
   league_id: string;
   season: number;
+  /** The first week of the game. A playoff round may span several. */
   week: number;
+  /** How many weeks the scores are added over. 1 for a normal game. */
+  week_count: number;
+  /** Which ladder this is on: the real one, or the consolation one. */
+  bracket: "winners" | "losers";
   home_team_id: string;
   away_team_id: string | null;
   home_score: number;
@@ -138,6 +182,14 @@ export interface Matchup {
   is_playoff: boolean;
   playoff_round: string | null;
   status: "scheduled" | "in_progress" | "final";
+}
+
+/** A team's seeding, frozen when the bracket was generated. */
+export interface PlayoffSeed {
+  league_id: string;
+  season: number;
+  team_id: string;
+  seed: number;
 }
 
 export interface StandingsRow {
@@ -197,7 +249,7 @@ export interface StatDefinition {
   label: string;
   category: string;
   description: string;
-  applies_to: "player" | "team_defense";
+  applies_to: "player" | "team_defense" | "team_offense";
   value_type: "count" | "flag" | "rate";
   default_points: number;
   scorable: boolean;

@@ -2,12 +2,20 @@
 
 import { useActionState, useState } from "react";
 import type { RosterSlot } from "@/lib/types";
+import { POSITION_ORDER, positionLabel } from "@/lib/roster-slots";
 import { savePositionLimits, saveRosterSlots, type AdminResult } from "./actions";
 
 const empty: AdminResult = {};
 
 /** Positions a slot can be restricted to. Empty selection = any position. */
-const POSITIONS = ["QB", "RB", "WR", "TE", "K", "P", "DEF", "HC", "DL", "LB", "DB"];
+// Individual defenders and individual offensive linemen are not in the
+// player pool: both are rostered as team units instead (DEF and OL), the
+// way ESPN has always done defenses.
+//
+// FLEX comes out: it is a lineup slot rather than something a player
+// can be, and neither a roster limit nor a scoring override can be set
+// on it.
+const POSITIONS = POSITION_ORDER.filter((p) => p !== "FLEX");
 
 interface SlotDraft {
   slot_key: string;
@@ -148,7 +156,7 @@ export function RosterPanel({
                         })
                       }
                     >
-                      {position}
+                      {positionLabel(position)}
                     </button>
                   );
                 })}
@@ -243,7 +251,7 @@ function PositionLimits({
         {POSITIONS.map((position) => (
           <div key={position}>
             <label className="label" htmlFor={`limit-${position}`}>
-              {position}
+              {positionLabel(position)}
             </label>
             <input
               id={`limit-${position}`}

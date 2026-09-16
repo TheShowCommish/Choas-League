@@ -4,8 +4,9 @@ import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Draft, DraftPick, Team } from "@/lib/types";
-import type { DraftablePlayer } from "./page";
+import type { DraftablePlayer, PickedPlayer } from "./page";
 import { closeLot, nominatePlayer, placeBid } from "./actions";
+import { positionLabel } from "@/lib/roster-slots";
 
 export interface AuctionLot {
   id: string;
@@ -32,6 +33,7 @@ export function AuctionRoom({
   myTeamId,
   isCommissioner,
   available,
+  pickedPlayers,
   openLot,
   nominatorId,
   budgets,
@@ -45,6 +47,7 @@ export function AuctionRoom({
   myTeamId: string | null;
   isCommissioner: boolean;
   available: DraftablePlayer[];
+  pickedPlayers: PickedPlayer[];
   openLot: AuctionLot | null;
   nominatorId: string | null;
   budgets: Record<string, number>;
@@ -58,11 +61,14 @@ export function AuctionRoom({
   const [openingBid, setOpeningBid] = useState("1");
 
   const teamById = new Map(teams.map((t) => [t.id, t]));
+
+  // Names for both halves of the room. Winning a lot is what takes a
+  // player out of the available pool, so a board built from that pool
+  // alone knows the name of everybody except the people on it -- which
+  // is how sold lots ended up reading "00-0036223".
   const nameById = new Map(available.map((p) => [p.player_id, p.full_name]));
-  for (const pick of picks) {
-    if (pick.player_id && !nameById.has(pick.player_id)) {
-      nameById.set(pick.player_id, pick.player_id);
-    }
+  for (const player of pickedPlayers) {
+    nameById.set(player.id, player.full_name);
   }
 
   const isMyNomination = nominatorId === myTeamId;
@@ -236,7 +242,7 @@ export function AuctionRoom({
                         {player.full_name}
                       </p>
                       <p className="muted text-xs">
-                        {player.pos ?? "?"} &middot; {player.team_abbr ?? "FA"}{" "}
+                        {positionLabel(player.pos)} &middot; {player.team_abbr ?? "FA"}{" "}
                         &middot; {Number(player.total_points).toFixed(1)} pts
                       </p>
                     </div>
