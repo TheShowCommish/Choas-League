@@ -17,3 +17,7 @@ The executive can reverse any of them. Mark reviewed entries with ✔ in CHECKIN
 | 2026-09-16 | T-006 | Multi-week matchups auto-close only when every covered week is complete; auto-finalize skips leagues not in season | Lead | yes |
 | 2026-09-16 | T-006 | /api/cron/* bypasses the login redirect (protected by CRON_SECRET instead); scheduled workflow now fails on any non-2xx | engineer | yes |
 | 2026-09-16 | T-006 | Auto-finalize only runs for leagues in_season or playoffs | engineer | yes |
+| 2026-09-16 | T-009 | Matchup lookups use a shared span helper (start week W-3..W, exact filter in code; DB caps span at 4) — no migration | engineer | yes |
+| 2026-09-16 | T-009 | Matchup detail: Total is default; ?week=N shows one week; linkable; single-week matchups unchanged | engineer | yes |
+| 2026-09-16 | T-009 | Multi-week lineups stacked (not side-by-side) on desktop; sticky segmented Week/Total switcher; "Week 2 of 2" accent badge | designer | yes |
+| 2026-09-16 | T-009 | A tied final shows no winner anywhere | Lead | yes |

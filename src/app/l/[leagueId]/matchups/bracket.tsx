@@ -1,3 +1,4 @@
+import { matchupCoversWeek, matchupSpanLabel } from "@/lib/matchup-weeks";
 import type { Matchup, Team } from "@/lib/types";
 import { MatchupCard } from "./matchup-card";
 
@@ -100,6 +101,7 @@ export function PlayoffBracket({
                           }
                           seeds={seeds}
                           compact
+                          week={selectedWeek}
                         />
                       ))}
                     </div>
@@ -142,6 +144,7 @@ function roundsOf(matchups: Matchup[]): Round[] {
     .sort((a, b) => a[0] - b[0])
     .map(([week, games]) => {
       const weeks = Math.max(...games.map((m) => m.week_count ?? 1), 1);
+      const span = { week, week_count: weeks };
       const named = games.find(
         (m) => m.playoff_round && m.playoff_round !== "Bye",
       );
@@ -150,12 +153,9 @@ function roundsOf(matchups: Matchup[]): Round[] {
         week,
         weeks,
         name: named?.playoff_round ?? games[0]?.playoff_round ?? `Week ${week}`,
-        weekLabel:
-          weeks > 1
-            ? `Weeks ${week}\u2013${week + weeks - 1}`
-            : `Week ${week}`,
+        weekLabel: matchupSpanLabel(span),
         games: games.sort(bySeededOrder),
-        contains: (w: number) => w >= week && w < week + weeks,
+        contains: (w: number) => matchupCoversWeek(span, w),
       };
     });
 }

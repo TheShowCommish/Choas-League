@@ -114,3 +114,12 @@ Options:
   C) A, plus a commissioner checkbox "also rescore finished weeks" when saving a rule
 Recommendation: C, because locking is the safe default but your league likes full control
 Answer:
+
+## Q11 — Lock down who can read team points                         [OPEN]
+Blocks: T-031
+Question: A database function (team_points_over) lets any logged-in user read any team's weekly points in any league, even leagues they're not in. Tightening it is a security change. Fix it?
+Options:
+  A) Yes — only league members (and the scheduled jobs) can read a league's team points
+  B) Leave it — scores aren't sensitive
+Recommendation: A, because it's a small, low-risk change and there's no reason outsiders should see league data
+Answer:

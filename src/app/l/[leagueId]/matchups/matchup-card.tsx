@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { safeColor, tint } from "@/lib/colors";
+import { matchupSpanLabel, matchupWinner } from "@/lib/matchup-weeks";
 import type { Matchup, Team } from "@/lib/types";
 import { TeamCrest } from "../team-theme";
+import { WeeksBadge } from "./weeks-badge";
 
 /**
  * One side of a game, wearing its own colours.
@@ -98,6 +100,7 @@ export function MatchupCard({
   mine,
   compact = false,
   seeds,
+  week,
 }: {
   leagueId: string;
   matchup: Matchup;
@@ -108,17 +111,19 @@ export function MatchupCard({
   compact?: boolean;
   /** team id -> playoff seed. Absent outside the bracket. */
   seeds?: Map<string, number>;
+  /** The week being browsed, so a multi-week card can say "Week 2 of 2". */
+  week?: number;
 }) {
   const isFinal = matchup.status === "final";
-  const homeWon = Number(matchup.home_score) > Number(matchup.away_score);
+  // Neither side wins a tie.
+  const winnerSide = matchupWinner(matchup);
+  const homeWon = winnerSide === "home";
+  const awayWon = winnerSide === "away";
 
   // A round can span two weeks, in which case the score is both added
   // together and the label has to say so.
-  const weekCount = matchup.week_count ?? 1;
-  const weekLabel =
-    weekCount > 1
-      ? `Weeks ${matchup.week}\u2013${matchup.week + weekCount - 1}`
-      : `Week ${matchup.week}`;
+  const weekLabel = matchupSpanLabel(matchup);
+  const multiWeek = (matchup.week_count ?? 1) > 1;
 
   return (
     <Link
@@ -130,7 +135,7 @@ export function MatchupCard({
       <MatchupSide
         team={away}
         score={Number(matchup.away_score)}
-        winner={isFinal && !homeWon && away !== null}
+        winner={isFinal && awayWon && away !== null}
         seed={away ? (seeds?.get(away.id) ?? null) : null}
         size={compact ? 22 : 28}
       />
@@ -141,11 +146,17 @@ export function MatchupCard({
         seed={home ? (seeds?.get(home.id) ?? null) : null}
         size={compact ? 22 : 28}
       />
-      <p className="muted px-1 text-xs">
-        {matchupStatusLabel(matchup)}
-        {matchup.is_playoff && ` \u00b7 ${matchup.playoff_round ?? "Playoffs"}`}
-        {compact && ` \u00b7 ${weekLabel}`}
-      </p>
+      <div className="flex items-center gap-2 px-1">
+        <p className="muted min-w-0 flex-1 truncate text-xs">
+          {matchupStatusLabel(matchup)}
+          {matchup.is_playoff &&
+            ` \u00b7 ${matchup.playoff_round ?? "Playoffs"}`}
+          {compact && !multiWeek && ` \u00b7 ${weekLabel}`}
+        </p>
+        {/* A multi-week game says so in a badge, which a scan down a
+            column of cards picks out; compact keeps it to one phrase. */}
+        <WeeksBadge matchup={matchup} week={week} compact={compact} />
+      </div>
     </Link>
   );
 }

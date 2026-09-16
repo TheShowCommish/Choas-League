@@ -147,6 +147,35 @@ body {
       bg-surface-2 px-2 py-0.5 text-xs text-muted;
   }
 
+  /* A matchup that spans several weeks ("Weeks 15–16", "Week 1 of 2").
+     Accent-tinted so it reads as a fact about the game rather than one
+     more line of muted metadata, and small enough to sit beside a score. */
+  .badge-weeks {
+    @apply inline-flex shrink-0 items-center gap-1 rounded-full border
+      border-accent/40 bg-accent/10 px-2 py-0.5 text-xs font-medium
+      whitespace-nowrap text-accent tabular-nums;
+  }
+
+  /* A segmented control: one choice out of a few, all visible. Items are
+     links or buttons; the chosen one carries aria-current="page". Full
+     width and 44px tall on phones, inline and compact from md up. */
+  .segmented {
+    @apply flex w-full gap-1 rounded-lg border border-border bg-surface-2 p-1
+      md:inline-flex md:w-auto;
+  }
+
+  .segmented-item {
+    @apply inline-flex min-h-11 min-w-0 flex-1 items-center justify-center
+      rounded-md px-2 text-sm font-medium whitespace-nowrap text-muted
+      transition-colors hover:bg-surface hover:text-foreground
+      focus-visible:outline-2 focus-visible:outline-offset-2
+      focus-visible:outline-accent md:min-h-9 md:flex-none md:px-4;
+  }
+
+  .segmented-item[aria-current="page"] {
+    @apply bg-accent font-semibold text-accent-ink shadow-sm hover:bg-accent;
+  }
+
   .h1 {
     @apply text-xl font-semibold tracking-tight;
   }

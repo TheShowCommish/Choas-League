@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { getLeagueContext } from "@/lib/league";
+import { fetchMatchupsCoveringWeek } from "@/lib/matchup-weeks";
 import { createClient } from "@/lib/supabase/server";
 import type { Matchup, StandingsRow, Transaction } from "@/lib/types";
+import { WeeksBadge } from "./matchups/weeks-badge";
 
 export default async function LeagueHomePage({
   params,
@@ -13,14 +15,13 @@ export default async function LeagueHomePage({
     await getLeagueContext(leagueId);
   const supabase = await createClient();
 
-  const [{ data: matchups }, { data: standings }, { data: activity }] =
+  const [matchups, { data: standings }, { data: activity }] =
     await Promise.all([
-      supabase
-        .from("matchups")
-        .select("*")
-        .eq("league_id", leagueId)
-        .eq("season", league.season)
-        .eq("week", league.current_week),
+      fetchMatchupsCoveringWeek(supabase, {
+        leagueId,
+        season: league.season,
+        week: league.current_week,
+      }),
       supabase.from("standings").select("*").eq("league_id", leagueId),
       supabase
         .from("transactions")
@@ -33,7 +34,7 @@ export default async function LeagueHomePage({
     ]);
 
   const teamById = new Map(teams.map((t) => [t.id, t]));
-  const myMatchup = ((matchups ?? []) as Matchup[]).find(
+  const myMatchup = matchups.find(
     (m) => m.home_team_id === myTeam?.id || m.away_team_id === myTeam?.id,
   );
 
@@ -60,7 +61,12 @@ export default async function LeagueHomePage({
       )}
 
       <section>
-        <h2 className="h2 mb-2">Your week {league.current_week} matchup</h2>
+        <div className="mb-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+          <h2 className="h2">Your week {league.current_week} matchup</h2>
+          {myMatchup && (
+            <WeeksBadge matchup={myMatchup} week={league.current_week} />
+          )}
+        </div>
         {myMatchup ? (
           <MatchupCard
             leagueId={leagueId}

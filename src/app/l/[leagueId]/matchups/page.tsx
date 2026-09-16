@@ -1,4 +1,5 @@
 import { getLeagueContext } from "@/lib/league";
+import { fetchMatchupsCoveringWeek } from "@/lib/matchup-weeks";
 import { createClient } from "@/lib/supabase/server";
 import type { Matchup, PlayoffSeed } from "@/lib/types";
 import { WeekTabs } from "../week-picker";
@@ -25,7 +26,7 @@ export default async function MatchupsPage({
   const inPlayoffs = week >= league.playoff_start_week;
 
   const supabase = await createClient();
-  const [{ data }, { data: seedRows }] = await Promise.all([
+  const [matchups, { data: seedRows }] = await Promise.all([
     inPlayoffs
       ? supabase
           .from("matchups")
@@ -34,12 +35,12 @@ export default async function MatchupsPage({
           .eq("season", league.season)
           .eq("is_playoff", true)
           .order("week")
-      : supabase
-          .from("matchups")
-          .select("*")
-          .eq("league_id", leagueId)
-          .eq("season", league.season)
-          .eq("week", week),
+          .then(({ data }) => (data ?? []) as Matchup[])
+      : fetchMatchupsCoveringWeek(supabase, {
+          leagueId,
+          season: league.season,
+          week,
+        }),
     inPlayoffs
       ? supabase
           .from("playoff_seeds")
@@ -49,7 +50,6 @@ export default async function MatchupsPage({
       : Promise.resolve({ data: [] }),
   ]);
 
-  const matchups = (data ?? []) as Matchup[];
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const seeds = new Map(
     ((seedRows ?? []) as PlayoffSeed[]).map((s) => [s.team_id, s.seed]),
@@ -105,6 +105,7 @@ export default async function MatchupsPage({
                     m.home_team_id === myTeam?.id ||
                     m.away_team_id === myTeam?.id
                   }
+                  week={week}
                 />
               </li>
             );

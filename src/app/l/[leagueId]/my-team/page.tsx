@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { getLeagueContext } from "@/lib/league";
+import { fetchMatchupsCoveringWeek } from "@/lib/matchup-weeks";
 import { createClient } from "@/lib/supabase/server";
 import { getTeamRoster } from "@/lib/roster";
 import { byPosition, positionLabel } from "@/lib/roster-slots";
 import type { Matchup, StandingsRow, Team } from "@/lib/types";
 import { LineupEditor } from "./editor";
 import { TeamSettings } from "./team-settings";
+import { WeeksBadge } from "../matchups/weeks-badge";
 import { TeamCrest, TeamTheme } from "../team-theme";
 import { WeekPicker } from "../week-picker";
 
@@ -43,19 +45,18 @@ export default async function MyTeamPage({
 
   // Position limits count the whole roster, bench and IR included, so
   // the summary has to be about the roster rather than the lineup.
-  const [{ data: limitRows }, { data: matchupRows }, { data: standingsRows }] =
+  const [{ data: limitRows }, matchupRows, { data: standingsRows }] =
     await Promise.all([
       supabase
         .from("league_position_limits")
         .select("position, max_count")
         .eq("league_id", leagueId),
-      supabase
-        .from("matchups")
-        .select("*")
-        .eq("league_id", leagueId)
-        .eq("season", league.season)
-        .eq("week", week)
-        .or(`home_team_id.eq.${myTeam.id},away_team_id.eq.${myTeam.id}`),
+      fetchMatchupsCoveringWeek(supabase, {
+        leagueId,
+        season: league.season,
+        week,
+        teamId: myTeam.id,
+      }),
       supabase.from("standings").select("*").eq("league_id", leagueId),
     ]);
 
@@ -82,7 +83,7 @@ export default async function MyTeamPage({
   // Regular season plus the playoff rounds, so lineups can be set ahead.
   const lastWeek = Math.max(league.regular_season_weeks + 4, week);
 
-  const matchup = ((matchupRows ?? []) as Matchup[])[0] ?? null;
+  const matchup = matchupRows[0] ?? null;
   const standings = (standingsRows ?? []) as StandingsRow[];
 
   return (
@@ -262,10 +263,11 @@ function MatchupPreview({
       href={`/l/${leagueId}/matchups/${matchup.id}`}
       className="card block hover:border-accent"
     >
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="muted text-xs uppercase tracking-wide">
           Week {week} &middot; {isHome ? "home" : "away"}
         </span>
+        <WeeksBadge matchup={matchup} week={week} compact />
         <span className="muted ml-auto text-xs">
           {matchup.status === "final"
             ? "Final"
