@@ -5,12 +5,12 @@ Only ONE task may be IN PROGRESS / REVIEW / TEST at a time.
 Priority: P0 (core promise in PRODUCT.md) · P1 (parity with ESPN) · P2 (nice to have)
 
 ## Current
-_none_
+T-009 — IN PROGRESS (engineer)
 
 ## Backlog
 | ID | P | Task | Owner | Status | Acceptance criteria |
 |----|---|------|-------|--------|---------------------|
-| T-009 | P0 | Multi-week matchups visible everywhere (league home page.tsx:23, my-team :57, matchups list, matchup detail loads only matchup.week). | engineer→designer | READY | Any matchup whose span covers the selected week is found; detail page has Wk1/Wk2/Total toggle with per-week player points; header "Week 2 of 2" |
+| T-009 | P0 | Multi-week matchups visible everywhere (league home page.tsx:23, my-team :57, matchups list, matchup detail loads only matchup.week). | engineer→designer | IN PROGRESS | Any matchup whose span covers the selected week is found; detail page has Wk1/Wk2/Total toggle with per-week player points; header "Week 2 of 2" |
 | T-007 | P0 | A 0-point position override must mean zero (0030:113 filters points<>0 so WR override 0 falls back to base). Projections must match. | engineer | BLOCKED (Q6) | Base tackle 5 + WR override 0 → WR 0, QB 5; projections agree; regression test |
 | T-008 | P0 | Real, independent losers bracket: own rounds/teams/byes/names, advances round by round, entrants (eliminated / non-playoff / both), mode (consolation vs toilet bowl); UI preview start weeks match DB (playoff-rounds.tsx:104 vs 0034:765). | engineer→designer | BLOCKED (Q7) | All config fields honored; both modes tested; preview == DB; league isn't marked complete while any playoff/losers game is open (else it can't auto-finalize) |
 | T-010 | P1 | Seeding & tiebreak options per bracket: re-seed vs fixed; seeding tiebreaker; game tiebreaker (tie currently goes to home via >=). | engineer→designer | READY | Each option configurable and tested |
@@ -40,7 +40,7 @@ _none_
 ## Done
 | ID | Task | Commit |
 |----|------|--------|
-| T-006 | Matchups finalize automatically (multi-week aware, in-season leagues, official stats + 36h); commissioner override; cron jobs no longer blocked by login redirect | (this commit) |
+| T-006 | Matchups finalize automatically (multi-week aware, in-season leagues, official stats + 36h); commissioner override; cron jobs no longer blocked by login redirect | 3ad6b8d |
 | T-004 | Desktop/mobile audit — app is one responsive layout; 10 tasks + Q9 raised | (docs) |
 | T-002 | Core-promise audit — all 3 Partial; 11 tasks + 4 questions raised | (docs) |
 | T-001 | Baseline health check — tsc, lint, db:verify, build clean; 224/225 tests | cd81b46 |
