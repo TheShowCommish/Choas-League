@@ -56,3 +56,41 @@ Options:
   C) Allow a clearly named test league + test accounts in the real database
 Recommendation: A, because it's free, fully isolated from real league data, and needs no installs
 Answer:
+
+## Q5 — May the team apply new database migrations to the live DB?   [OPEN]
+Blocks: T-006 going live (and most future features — nearly all need schema changes)
+Question: Pushed code that depends on a new migration breaks the live site until `npm run db:push` runs against your real Supabase. Who runs it?
+Options:
+  A) Team runs `db:push` automatically right after pushing, only when review + test passed and `db:verify` is clean
+  B) Team pushes code; you run `npm run db:push` yourself when you see "migration pending" in the check-in
+  C) Team holds back any push that includes a migration until you approve at check-in
+Recommendation: A while the site has no real in-season league data; switch to C once your league is live
+Answer:
+
+## Q6 — Should a 0-point position override mean "scores zero"?      [OPEN]
+Blocks: T-007
+Question: Today, setting "WR tackle = 0" is silently ignored and the WR gets the base tackle value. Fixing it changes scores for any league that already has 0-point overrides.
+Options:
+  A) Fix it — 0 means zero; rescore existing leagues
+  B) Fix it for new rules only; leave existing leagues' stored scores untouched until the commissioner re-saves
+Recommendation: A, because it's the exact example in your brief and nobody intended a 0 to mean "use the base value"
+Answer:
+
+## Q7 — Default format for the losers bracket                          [OPEN]
+Blocks: T-008
+Question: When a commissioner turns on a losers bracket, what should it default to? (They can change it either way.)
+Options:
+  A) Consolation — eliminated playoff teams play on for 3rd/5th place; winners advance
+  B) Toilet bowl — non-playoff teams play; losers advance; last team standing is the league's last place
+  C) Both brackets available, commissioner must pick (no default)
+Recommendation: B, because it's the one people actually care about and the one ESPN lacks
+Answer:
+
+## Q8 — Should rewards/punishments change gameplay?                 [OPEN]
+Blocks: T-011
+Question: When the commissioner attaches a reward/punishment to a finishing place, is it just a label, or can it change the game?
+Options:
+  A) Display only (e.g. "Toilet Bowl loser: wears a jersey") on the bracket and standings
+  B) Display + optional effects: next year's draft slot, FAAB budget bonus/penalty
+Recommendation: A now, B later — labels ship quickly; effects need next-season rollover which doesn't exist yet
+Answer:
