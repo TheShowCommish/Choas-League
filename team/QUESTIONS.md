@@ -94,3 +94,13 @@ Options:
   B) Display + optional effects: next year's draft slot, FAAB budget bonus/penalty
 Recommendation: A now, B later — labels ship quickly; effects need next-season rollover which doesn't exist yet
 Answer:
+
+## Q9 — How to build separate desktop and mobile interfaces           [OPEN]
+Blocks: T-021, T-022, T-023, T-024
+Question: Which approach should the team use for "same data, different interfaces"?
+Options:
+  A) One page loads data once, then renders a Desktop view and a Mobile view; the screen width (CSS, split at 1024px) picks which shows — data can never differ, tablets/resizing just work, no hosting impact; cost: both views are sent to the browser
+  B) Server detects the device from the browser's user-agent and renders only one view — smaller pages, but misdetects iPads/foldables, needs a "switch to desktop site" toggle
+  C) Separate mobile URLs (/m/...) — most duplication, shared links open the wrong interface
+Recommendation: A, because it guarantees identical data with the least to maintain
+Answer:

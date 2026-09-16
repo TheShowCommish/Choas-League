@@ -21,12 +21,22 @@ _none_
 | T-014 | P1 | Custom milestone bonuses: "stat ≥ X → N pts", optionally per position; scored in recompute, shown in breakdown. | engineer→designer | READY | e.g. TE ≥8 rec +4 works; tested |
 | T-015 | P2 | League median scoring (optional extra W/L vs median; standings & seeding include it; off by default). | engineer | READY | Toggle works; tests cover standings + seeding |
 | T-016 | P2 | Scoring admin QoL: ESPN Std/Half/PPR presets, "Add new catalog stats" button (backfill_scoring_rules), override count in tab header. | designer | READY | All three present |
+| T-017 | P0 | Mobile bottom nav redesign: 5 icon+label tabs (Home, Team, Matchups, Players, More→sheet with Trades, Standings, Log, Chat, Draft, Admin, theme, Sign out). | designer | READY | No horizontal nav scroll at 320px; every destination ≤2 taps; targets ≥44px; safe-area inset; theme/Sign out removed from phone header |
+| T-018 | P0 | Desktop shell: permanent tab row at ≥lg (no collapsed Menu); table-heavy pages (Players, Standings, Team, Transactions) widen to max-w-7xl. | designer | READY | Active tab visible; keyboard focus check passes in all themes |
+| T-019 | P1 | Mobile tap-target sweep: nothing <44px on phones (.btn-sm, week tabs, theme switch, pagination); desktop stays compact; replace nonexistent hover:bg-bg token. | designer | READY | Measured ≥44px at mobile preset; desktop unchanged |
+| T-020 | P1 | Live data freshness: realtime/poll refresh for matchup scores, My Team points, Home, trade inbox badge. | engineer→designer | READY | Score change reaches open desktop + mobile tabs within 60s, no reload; one subscription per page |
+| T-021 | P0 | Pilot separate desktop/mobile views on Standings then Home (per Q9 architecture). | designer | BLOCKED (Q9) | One data fetch; mobile standings no h-scroll at 375px; desktop adds streak/GB/playoff line; convention logged in DECISIONS |
+| T-022 | P1 | My Team split: mobile tappable lineup → player sheet (Swap/Drop/Player); desktop ESPN-style roster table (Slot, Player, Opp, Status, Proj, Pts). | designer | BLOCKED (Q9) | No inline Drop on mobile; 16-man roster fits 1440×900; saving identical in both |
+| T-023 | P1 | Players split: mobile card list, sticky search, position chips, Add/Bid bottom sheet; desktop full table + Add/Bid popover. | designer | BLOCKED (Q9) | No sideways scroll on mobile; Add/Bid reachable without h-scroll on both |
+| T-024 | P1 | Matchup detail split with per-player stat-line breakdown (mobile sticky score + expandable rows; desktop side-by-side tables + hover). Engineer supplies per-week stat lines if missing. | engineer→designer | BLOCKED (Q9) | Every scored stat line visible on both; names not truncated <12 chars at 375px |
+| T-025 | P2 | Draft room mobile: tabs (Pool/Board/Queue/Roster) with sticky clock/on-the-clock/Draft button below lg. | designer | READY | Clock visible while scrolling any tab at 375×812; draft in ≤2 taps; one realtime channel |
+| T-026 | P2 | Chat polish: mobile full-height with pinned composer and no page jump; desktop chat as right-side drawer from any league page. | designer | READY | All three behaviours verified |
 | T-003 | P1 | Full feature gap analysis vs ESPN, Yahoo, Sleeper. | fantasy-expert | READY | Prioritized list of proposals added to Backlog by Lead |
 | T-005 | P2 | Fix flaky limit in scripts/feeds.test.ts:134-137 (coverage > 3000 can't be reached; pool is ~2707). Tie it to pool size. | engineer | READY | `npm test` 225/225; test still fails if mapping genuinely regresses |
-| T-004 | P0 | Audit desktop vs mobile experience page by page; propose the approach for separate interfaces. | designer | READY | Page-by-page findings; architecture choice goes to QUESTIONS (big decision) |
 
 ## Done
 | ID | Task | Commit |
 |----|------|--------|
+| T-004 | Desktop/mobile audit — app is one responsive layout; 10 tasks + Q9 raised | (docs) |
 | T-002 | Core-promise audit — all 3 Partial; 11 tasks + 4 questions raised | (docs) |
 | T-001 | Baseline health check — tsc, lint, db:verify, build clean; 224/225 tests | cd81b46 |
