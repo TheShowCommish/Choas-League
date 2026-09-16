@@ -35,9 +35,9 @@ covers both.
 
 ## Big decisions — STOP and ask the executive
 Add to `team/QUESTIONS.md`, mark the task `BLOCKED`, move on to unblocked work.
-- Changing hosting/deployment setup (the site is served via GitHub Pages)
-- Running migrations against the real Supabase DB (`npm run db:push`)
-- Changes that alter or delete existing league data, or change how existing leagues score
+- Changing hosting/deployment setup (Vercel, auto-deploys from `main`)
+- Anything that needs the executive's accounts or secrets (Vercel, Supabase, GitHub settings)
+- Hard-coding a league format instead of making it a per-league setting
 - Removing or substantially redefining a feature the executive asked for
 - Auth, permissions/RLS model, or security posture changes
 - New paid services, new third-party data sources, or anything that costs money
@@ -45,9 +45,15 @@ Add to `team/QUESTIONS.md`, mark the task `BLOCKED`, move on to unblocked work.
 - Anything that contradicts `team/PRODUCT.md`
 - Anything irreversible or anything sent to real users
 
-## Pushing
-After a task passes review AND test, the Lead commits and pushes to `origin main` automatically (executive decision, Q2).
-Never force-push. If the push is rejected, stop and ask.
+## Pushing and database
+After a task passes review AND test, the Lead commits and pushes to `origin main` (Vercel deploys it).
+If the task added a migration, the Lead then runs `npm run db:push` (executive: automate DB updates).
+Never force-push. If a push or db:push fails, record it in CHECKIN and keep working on tasks that don't depend on it.
+
+## Test data
+Nothing is real yet (target: 2027 season). Agents may use the current Supabase project for testing:
+seed test leagues (`npm run seed:test-league`), create, alter and delete test data. Agents never type passwords into a browser;
+for logged-in browser checks, reuse a session the executive signed into in the built-in browser.
 
 ## Small decisions — the team decides and logs them
 One line each in `team/DECISIONS.md`: layout, copy, naming, component structure,
@@ -57,5 +63,5 @@ dependencies. If in doubt whether it's big: it's big.
 ## Engineering ground rules
 - This is Next.js 16 — read `node_modules/next/dist/docs/` before using a Next API (see AGENTS.md).
 - Verification commands: `npm run lint`, `npx tsc --noEmit`, `npm test`, `npm run db:verify` (in-memory Postgres, safe), `npm run build`.
-- Never read or print secrets from `.env.local`. Never touch the production DB.
+- Never read or print secrets from `.env.local`. Only the Lead runs `db:push`.
 - New migrations go in `supabase/migrations/NNNN_name.sql`, numbered after the last one.

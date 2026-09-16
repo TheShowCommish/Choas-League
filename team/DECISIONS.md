@@ -21,3 +21,6 @@ The executive can reverse any of them. Mark reviewed entries with ✔ in CHECKIN
 | 2026-09-16 | T-009 | Matchup detail: Total is default; ?week=N shows one week; linkable; single-week matchups unchanged | engineer | yes |
 | 2026-09-16 | T-009 | Multi-week lineups stacked (not side-by-side) on desktop; sticky segmented Week/Total switcher; "Week 2 of 2" accent badge | designer | yes |
 | 2026-09-16 | T-009 | A tied final shows no winner anywhere | Lead | yes |
+| 2026-09-16 | Q3-Q10 | Executive: hosting = Vercel; test on current DB; automate db:push; league formats are per-league settings; unique desktop (decisions) and mobile (quick actions) views; target 2027 season | executive | n/a |
+| 2026-09-16 | Q9 | Architecture A: each page loads data once, renders separate Desktop and Mobile view components chosen by screen width | Lead | yes |
+| 2026-09-16 | T-017 | Keep viewportFit "cover" site-wide (required for iPhone safe-area padding) | designer | yes |

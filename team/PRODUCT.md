@@ -16,12 +16,27 @@ features of **Sleeper** and **Yahoo**.
 3. **Score on anything.** Rules can be position-specific (a QB tackle scores,
    a WR tackle does not). The more obscure the stat, the better.
 
+## Multi-league, settings-first (executive, 2026-09-16)
+The site hosts **many leagues, each with its own rules**. Never hard-code a
+league format. Anything a league could reasonably do differently (bracket
+formats, losers-bracket mode, rewards/punishments, whether rule changes rescore
+finished weeks, tiebreakers, median scoring...) is a **per-league commissioner
+setting**. Where a default is unavoidable, pick the least surprising one and log it.
+
 ## Platforms
 Full **desktop** and full **mobile** experiences. Same data at all times, but
-each interface is designed for its device, not one layout squeezed to fit.
+**unique views, optimized differently**:
+- **Desktop = decision making.** Deep stats, comparisons, research, trade
+  analysis, lineup decisions with full context, commissioner setup.
+- **Mobile = quick actions.** Fewer statistics; set lineup, check score, accept
+  a trade, claim a player, chat, in as few taps as possible.
+
+## Timeline
+Nothing is live yet. Goal: **ready for real leagues by the 2027 season.**
 
 ## How the executive wants to work
 - Check-ins are **concise**: improvements listed briefly, questions asked clearly.
 - **Minimize what the executive has to test.** The team verifies its own work.
 - Small design/function decisions: the team decides, but logs every one.
 - Big decisions: stop and wait for the executive (see `team/RULES.md`).
+- Automate as much as possible; only involve the executive when truly needed.

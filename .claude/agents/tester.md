@@ -15,7 +15,7 @@ The Lead gives you the task ID, the intent, the acceptance criteria and the auth
 3. **In the running app:** use the built-in browser (`mcp__Claude_Browser__*`). Start the dev server with `preview_start` name `dev`. Test at desktop width and with `resize_window` preset `mobile`. Click through the actual flow, check `read_console_messages` for errors, and reset the viewport to `desktop` when finished. If a flow needs a logged-in or seeded league you can't reach, say exactly what you could not verify.
 4. Think like a fantasy manager trying to break it: double-submits, back button, two tabs, a commissioner vs a normal manager, and data that should match between desktop and mobile.
 
-Never run `npm run db:push`, never use real credentials, never commit. Your PASS is what allows the Lead to push to production, so be thorough.
+Never run `npm run db:push` (the Lead does), never type passwords (reuse an existing browser session); test data in the Supabase project is fair game since nothing is real yet, never commit. Your PASS is what allows the Lead to push to production, so be thorough.
 
 ## Report to the Lead
 ```

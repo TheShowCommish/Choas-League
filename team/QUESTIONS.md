@@ -37,7 +37,7 @@ Options:
 Recommendation: C, because you get a live preview to glance at without the team ever touching production
 Answer: B — push automatically after testing. (Note: site is on GitHub Pages, not Vercel.)
 
-## Q3 — Hosting: GitHub Pages can't run this app                     [OPEN]
+## Q3 — Hosting: GitHub Pages can't run this app                     [ANSWERED]
 Blocks: nothing yet (building continues; affects whether pushes actually update a live site)
 Question: The app needs a server (Next.js server actions, Supabase login cookies, /api/cron routes), but GitHub Pages only serves static files. Where should the site run?
 Options:
@@ -45,9 +45,9 @@ Options:
   B) Another Node host (Netlify, Render, Cloudflare) — similar, a bit more setup
   C) Stay on GitHub Pages — requires rewriting the app as static pages + Supabase called straight from the browser; large rewrite, weaker security
 Recommendation: A, because it's free, zero code changes, and auto-push then genuinely updates the live site
-Answer:
+Answer: Vercel. Executive created a Vercel project connected to the GitHub repo.
 
-## Q4 — A safe database so agents can test logged-in pages           [OPEN]
+## Q4 — A safe database so agents can test logged-in pages           [ANSWERED]
 Blocks: agent testing of everything behind login (leagues, lineups, draft, admin) — until answered, those land in "Please test by hand"
 Question: Agents can't test logged-in pages without an account and a league, and they must not write to your real Supabase. What should they use?
 Options:
@@ -55,9 +55,9 @@ Options:
   B) Local Supabase via Docker on this PC — no cloud project, but needs Docker Desktop installed
   C) Allow a clearly named test league + test accounts in the real database
 Recommendation: A, because it's free, fully isolated from real league data, and needs no installs
-Answer:
+Answer: Use the current Supabase project for testing; nothing is real yet (target 2027).
 
-## Q5 — May the team apply new database migrations to the live DB?   [OPEN]
+## Q5 — May the team apply new database migrations to the live DB?   [ANSWERED]
 Blocks: T-006 going live (and most future features — nearly all need schema changes)
 Question: Pushed code that depends on a new migration breaks the live site until `npm run db:push` runs against your real Supabase. Who runs it?
 Options:
@@ -65,18 +65,18 @@ Options:
   B) Team pushes code; you run `npm run db:push` yourself when you see "migration pending" in the check-in
   C) Team holds back any push that includes a migration until you approve at check-in
 Recommendation: A while the site has no real in-season league data; switch to C once your league is live
-Answer:
+Answer: Automate as much as possible; involve the executive only when needed.
 
-## Q6 — Should a 0-point position override mean "scores zero"?      [OPEN]
+## Q6 — Should a 0-point position override mean "scores zero"?      [ANSWERED]
 Blocks: T-007
 Question: Today, setting "WR tackle = 0" is silently ignored and the WR gets the base tackle value. Fixing it changes scores for any league that already has 0-point overrides.
 Options:
   A) Fix it — 0 means zero; rescore existing leagues
   B) Fix it for new rules only; leave existing leagues' stored scores untouched until the commissioner re-saves
 Recommendation: A, because it's the exact example in your brief and nobody intended a 0 to mean "use the base value"
-Answer:
+Answer: Settings-first, no league-format assumptions. 0 means 0 (a commissioner who sets 0 means it).
 
-## Q7 — Default format for the losers bracket                          [OPEN]
+## Q7 — Default format for the losers bracket                          [ANSWERED]
 Blocks: T-008
 Question: When a commissioner turns on a losers bracket, what should it default to? (They can change it either way.)
 Options:
@@ -84,18 +84,18 @@ Options:
   B) Toilet bowl — non-playoff teams play; losers advance; last team standing is the league's last place
   C) Both brackets available, commissioner must pick (no default)
 Recommendation: B, because it's the one people actually care about and the one ESPN lacks
-Answer:
+Answer: No assumed default. Losers bracket format is a per-league commissioner setting.
 
-## Q8 — Should rewards/punishments change gameplay?                 [OPEN]
+## Q8 — Should rewards/punishments change gameplay?                 [ANSWERED]
 Blocks: T-011
 Question: When the commissioner attaches a reward/punishment to a finishing place, is it just a label, or can it change the game?
 Options:
   A) Display only (e.g. "Toilet Bowl loser: wears a jersey") on the bracket and standings
   B) Display + optional effects: next year's draft slot, FAAB budget bonus/penalty
 Recommendation: A now, B later — labels ship quickly; effects need next-season rollover which doesn't exist yet
-Answer:
+Answer: Per-league setting. Labels now; gameplay effects as optional per-league settings later.
 
-## Q9 — How to build separate desktop and mobile interfaces           [OPEN]
+## Q9 — How to build separate desktop and mobile interfaces           [ANSWERED]
 Blocks: T-021, T-022, T-023, T-024
 Question: Which approach should the team use for "same data, different interfaces"?
 Options:
@@ -103,9 +103,9 @@ Options:
   B) Server detects the device from the browser's user-agent and renders only one view — smaller pages, but misdetects iPads/foldables, needs a "switch to desktop site" toggle
   C) Separate mobile URLs (/m/...) — most duplication, shared links open the wrong interface
 Recommendation: A, because it guarantees identical data with the least to maintain
-Answer:
+Answer: Unique views: desktop for decision-making (stats-heavy), mobile for quick actions (fewer stats). Team uses A.
 
-## Q10 — Should scoring-rule changes rewrite finished weeks?          [OPEN]
+## Q10 — Should scoring-rule changes rewrite finished weeks?          [ANSWERED]
 Blocks: nothing (T-006 proceeds with option A); affects live leagues once T-006's migration is applied
 Question: Until now no week was ever "final", so editing a scoring rule silently changed every past result. With T-006, finalized weeks keep their results and rule changes only affect open matchups. Is that what you want?
 Options:
@@ -113,7 +113,7 @@ Options:
   B) Rule changes rescore everything, including finished weeks and standings
   C) A, plus a commissioner checkbox "also rescore finished weeks" when saving a rule
 Recommendation: C, because locking is the safe default but your league likes full control
-Answer:
+Answer: Per-league setting: commissioner chooses whether rule changes rescore finalized weeks.
 
 ## Q11 — Lock down who can read team points                         [OPEN]
 Blocks: T-031
