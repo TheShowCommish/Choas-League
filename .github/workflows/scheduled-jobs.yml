@@ -96,12 +96,14 @@ jobs:
 
       - name: Call the endpoints
         env:
-          APP_URL: ${{ secrets.APP_URL }}
+          # The deployed URL is not a secret, so the production site is the
+          # default. Set an APP_URL secret only to point the jobs somewhere else.
+          APP_URL: ${{ secrets.APP_URL || 'https://choas-league.vercel.app' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           WEEK: ${{ inputs.week }}
         run: |
-          if [ -z "$APP_URL" ] || [ -z "$CRON_SECRET" ]; then
-            echo "APP_URL and CRON_SECRET repository secrets must be set." >&2
+          if [ -z "$CRON_SECRET" ]; then
+            echo "The CRON_SECRET repository secret must be set, and must match the value in Vercel." >&2
             exit 1
           fi
 
