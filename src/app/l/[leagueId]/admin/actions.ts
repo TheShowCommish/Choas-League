@@ -127,7 +127,12 @@ export async function saveScoringRules(
       for (const row of parsed) {
         if (!row.statKey || !row.position) continue;
 
-        const points = Number(row.points);
+        // 0 is a real override (the stat scores nothing at that
+        // position) and is saved as one. A blank box is not a 0 -- it
+        // would silently zero the stat -- so it is refused; removing a
+        // rule is the Remove button.
+        const points =
+          String(row.points ?? "").trim() === "" ? NaN : Number(row.points);
         if (!Number.isFinite(points)) {
           return {
             error: `"${row.points}" is not a number (${row.statKey}/${row.position}).`,

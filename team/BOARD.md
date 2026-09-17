@@ -5,12 +5,11 @@ Only ONE task may be IN PROGRESS / REVIEW / TEST at a time.
 Priority: P0 (core promise in PRODUCT.md) · P1 (parity with ESPN) · P2 (nice to have)
 
 ## Current
-T-007 — IN PROGRESS (engineer)
+_none_
 
 ## Backlog
 | ID | P | Task | Owner | Status | Acceptance criteria |
 |----|---|------|-------|--------|---------------------|
-| T-007 | P0 | A 0-point position override must mean zero (0030:113 filters points<>0 so WR override 0 falls back to base). Projections must match. | engineer | IN PROGRESS | Base tackle 5 + WR override 0 → WR 0, QB 5; projections agree; regression test |
 | T-008 | P0 | Real, independent losers bracket: own rounds/teams/byes/names, advances round by round, entrants (eliminated / non-playoff / both), mode (consolation vs toilet bowl), all per-league settings with no assumed format; UI preview start weeks match DB (playoff-rounds.tsx:104 vs 0034:765). | engineer→designer | READY | All config fields honored; both modes tested; preview == DB; separate losers reseed setting; no hard-coded 'Consolation' name, each round uses its own league_playoff_rounds row; league isn't marked complete while any playoff/losers game is open (else it can't auto-finalize) |
 | T-010 | P0 | Seeding & tiebreak settings per bracket (0034:579, 0034:706 always reseeds, 0034:711/728 home wins ties): ordered seeding tiebreakers incl. head-to-head; re-seed vs fixed; seeding tiebreaker; game tiebreaker (tie currently goes to home via >=). | engineer→designer | READY | Each option configurable and tested |
 | T-011 | P1 | Rewards/punishments by finishing place as per-league settings (label + description, shown on bracket and final standings); gameplay effects later. | engineer→designer | READY | Commissioner can attach to places; displayed; gameplay effects per Q8 |
@@ -47,12 +46,14 @@ T-007 — IN PROGRESS (engineer)
 | T-044 | P1 | Keeper/dynasty foundation: league_type redraft/keeper/dynasty, keeper count/cost/deadline, season rollover. | engineer→designer | BLOCKED (Q12) | Per Q12 |
 | T-045 | P1 | Draft pick trading (current season): pick asset in trade_items (0006:95-103), board shows ownership, per-league on/off. | engineer→designer | READY | Picks tradeable and reflected in draft order; setting off hides it; tests |
 | T-046 | P2 | Misc league settings: draft_order_style snake/linear/third-round reversal; taxi slots; acquisition limits; allow FAAB trading; finalize_after window (0038 fixed 36h). | engineer→designer | READY | Each setting honoured and tested |
+| T-047 | P1 | Scoring admin silent-zero traps: new positional row starts at "0" (position-overrides.tsx Add button) so a forgotten value zeroes a stat; blank base points box saves as 0 (admin/actions.ts ~98 Number('')); rule lookup prefers larger position sets ({WR,TE} beats {WR}) and ties are unordered (0039 + scoring_rule_points 0030). | engineer→designer | READY | New rows start blank and require a value; blank base box refused; most specific = fewest positions, deterministic tiebreak; tests |
 | T-003 | P1 | Full feature gap analysis vs ESPN, Yahoo, Sleeper. | fantasy-expert | READY | Prioritized list of proposals added to Backlog by Lead |
 | T-005 | P2 | Fix flaky limit in scripts/feeds.test.ts:134-137 (coverage > 3000 can't be reached; pool is ~2707). Tie it to pool size. | engineer | READY | `npm test` 225/225; test still fails if mapping genuinely regresses |
 
 ## Done
 | ID | Task | Commit |
 |----|------|--------|
+| T-007 | Position override of 0 now scores zero (actual + all projections); season projections no longer add base + override | (this commit) |
 | T-017 | Phone nav: 5 icon tabs + More sheet (Trades, Standings, Log, Chat, Draft, Admin, theme, Sign out) | 2f2d6af |
 | T-036 | Settings-first audit: 25 hard-coded rules found; 8 new tasks, 5 tasks expanded, Q12 raised | (docs) |
 | T-009 | Multi-week matchups found on every page; matchup detail Week/Total switcher, per-week box score; ties show no winner | 1b4f8e3 |

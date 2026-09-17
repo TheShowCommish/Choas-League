@@ -70,7 +70,8 @@ export function PositionOverrides({
         <p className="muted text-sm">
           Make one stat worth a different amount at a given position. A
           quarterback&rsquo;s tackle can be worth 50 while a
-          receiver&rsquo;s is worth 5. Anything not listed here uses the
+          receiver&rsquo;s is worth 5. Set 0 to make the stat worth
+          nothing at that position. Anything not listed here uses the
           value from the list above.
         </p>
       </div>

@@ -28,3 +28,4 @@ The executive can reverse any of them. Mark reviewed entries with ✔ in CHECKIN
 | 2026-09-16 | T-036 | Default playoff bracket = fixed (no re-seeding), as ESPN does; reseed is a per-bracket setting | Lead | yes |
 | 2026-09-16 | T-036 | Default trade review = commissioner, 24h window; deadline defaults to the week before playoffs (all per-league settings) | Lead | yes |
 | 2026-09-16 | T-036 | Default seeding tiebreakers = head-to-head, then points for | Lead | yes |
+| 2026-09-16 | T-007 | A player who no longer scores has his stored week score row deleted (not set to 0); blank positional points box is an error | engineer | yes |

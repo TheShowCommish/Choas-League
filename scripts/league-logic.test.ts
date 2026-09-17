@@ -359,6 +359,191 @@ describe("scoring engine", () => {
     assert.equal(Number(row.points), 4.5);
   });
 
+  describe("a position override of 0 means zero", () => {
+    /** Actual points for a week, 0 when the player has no score row. */
+    async function actual(leagueId: string, playerId: string) {
+      const rows = await db.q<{ points: string }>(
+        `select points from public.player_week_scores
+         where league_id = $1 and player_id = $2 and week = 1`,
+        [leagueId, playerId],
+      );
+      return rows.length === 0 ? 0 : Number(rows[0].points);
+    }
+
+    /** Weekly and season projections for the same stat line. */
+    async function projected(
+      leagueId: string,
+      teamId: string,
+      playerId: string,
+      name: string,
+      line: Record<string, number>,
+    ) {
+      await db.q(
+        `insert into public.player_week_projections (player_id, season, week, stats)
+         values ($1, $2, 1, $3)
+         on conflict (player_id, season, week) do update set stats = excluded.stats`,
+        [playerId, SEASON, JSON.stringify(line)],
+      );
+      await db.q(
+        `insert into public.player_season_projections (player_id, season, stats)
+         values ($1, $2, $3)
+         on conflict (player_id, season) do update set stats = excluded.stats`,
+        [playerId, SEASON, JSON.stringify(line)],
+      );
+
+      const week = await db.one<{ points: string }>(
+        "select public.projected_points($1, $2, $3, 1) as points",
+        [leagueId, playerId, SEASON],
+      );
+      const season = await db.q<{ points: string }>(
+        `select points from public.league_season_projection($1, $2)
+         where player_id = $3`,
+        [leagueId, SEASON, playerId],
+      );
+      const pool = await db.q<{ proj_points: string | null }>(
+        `select proj_points from public.league_player_pool($1, $2)
+         where player_id = $3`,
+        [leagueId, name, playerId],
+      );
+
+      // team_projections only covers rostered players.
+      await db.q(
+        `insert into public.roster_players (league_id, team_id, player_id)
+         values ($1, $2, $3)`,
+        [leagueId, teamId, playerId],
+      );
+      const team = await db.q<{ points: string }>(
+        `select points from public.team_projections($1, $2, $3, 1)
+         where player_id = $4`,
+        [leagueId, teamId, SEASON, playerId],
+      );
+
+      return {
+        week: Number(week.points),
+        season: season.length === 0 ? 0 : Number(season[0].points),
+        pool: pool.length === 0 ? 0 : Number(pool[0].proj_points ?? 0),
+        team: team.length === 0 ? 0 : Number(team[0].points),
+      };
+    }
+
+    async function setRule(
+      leagueId: string,
+      statKey: string,
+      points: number,
+      positions: string[] = [],
+    ) {
+      await db.q(
+        `insert into public.league_scoring_rules (league_id, stat_key, points, positions)
+         values ($1, $2, $3, $4)
+         on conflict (league_id, stat_key, positions)
+         do update set points = excluded.points`,
+        [leagueId, statKey, points, positions],
+      );
+    }
+
+    test("a QB's tackle scores and a WR's does not, actual and projected", async () => {
+      const f = await league("zero-override");
+      const qb = await player("ZERO_QB", "Zero QB", "QB");
+      const wr = await player("ZERO_WR", "Zero WR", "WR");
+      await stats(qb, 1, { tackles_combined: 1 });
+      await stats(wr, 1, { tackles_combined: 1 });
+
+      await setRule(f.leagueId, "tackles_combined", 5);
+      await setRule(f.leagueId, "tackles_combined", 0, ["WR"]);
+      await db.q("select public.recompute_week_scores($1, $2, $3)", [f.leagueId, SEASON, 1]);
+
+      assert.equal(await actual(f.leagueId, qb), 5, "QB tackle uses the base");
+      assert.equal(await actual(f.leagueId, wr), 0, "WR override of 0 wins");
+
+      const line = { tackles_combined: 1 };
+      assert.deepEqual(
+        await projected(f.leagueId, f.teamIds[0], qb, "Zero QB", line),
+        { week: 5, season: 5, pool: 5, team: 5 },
+        "QB projected the same as he scored",
+      );
+      assert.deepEqual(
+        await projected(f.leagueId, f.teamIds[0], wr, "Zero WR", line),
+        { week: 0, season: 0, pool: 0, team: 0 },
+        "WR projected the same as he scored",
+      );
+    });
+
+    test("a season projection counts a stat once, not base plus override", async () => {
+      const f = await league("season-proj-no-double-count");
+      const te = await player("PROJ_TE", "Projected TE", "TE");
+
+      // Base 1, TE 1.5. Summing both rules would give 25; the most
+      // specific rule gives 15.
+      await setRule(f.leagueId, "receptions", 1);
+      await setRule(f.leagueId, "receptions", 1.5, ["TE"]);
+
+      assert.deepEqual(
+        await projected(f.leagueId, f.teamIds[0], te, "Projected TE", {
+          receptions: 10,
+        }),
+        { week: 15, season: 15, pool: 15, team: 15 },
+      );
+    });
+
+    test("an override of 0 clears a score computed under the old rule", async () => {
+      const f = await league("zero-override-rescore");
+      const wr = await player("ZERO_STALE_WR", "Stale WR", "WR");
+      await stats(wr, 1, { tackles_combined: 1 });
+
+      await setRule(f.leagueId, "tackles_combined", 5);
+      await db.q("select public.recompute_week_scores($1, $2, $3)", [f.leagueId, SEASON, 1]);
+      assert.equal(await actual(f.leagueId, wr), 5);
+
+      await setRule(f.leagueId, "tackles_combined", 0, ["WR"]);
+      await db.q("select public.recompute_week_scores($1, $2, $3)", [f.leagueId, SEASON, 1]);
+      assert.equal(await actual(f.leagueId, wr), 0);
+    });
+
+    test("an override of 0 beats a nonzero base and stays out of the breakdown", async () => {
+      const f = await league("zero-override-breakdown");
+      const te = await player("ZERO_TE", "Zero TE", "TE");
+      await stats(te, 1, { receptions: 4, receiving_yards: 50 });
+
+      await setRule(f.leagueId, "receptions", 0, ["TE"]);
+      await db.q("select public.recompute_week_scores($1, $2, $3)", [f.leagueId, SEASON, 1]);
+
+      const row = await db.one<{ points: string; breakdown: Record<string, unknown> }>(
+        `select points, breakdown from public.player_week_scores
+         where league_id = $1 and player_id = $2`,
+        [f.leagueId, te],
+      );
+      assert.equal(Number(row.points), 5, "yards only; receptions are worth 0 to a TE");
+      assert.ok(!("receptions" in row.breakdown));
+    });
+
+    test("a nonzero override beats a base of 0", async () => {
+      const f = await league("override-over-zero-base");
+      const wr = await player("TGT_WR", "Target WR", "WR");
+      const rb = await player("TGT_RB", "Target RB", "RB");
+      await stats(wr, 1, { targets: 10, receptions: 1 });
+      await stats(rb, 1, { targets: 10, receptions: 1 });
+
+      // Targets default to 0 for everyone.
+      await setRule(f.leagueId, "targets", 0.5, ["WR"]);
+      await db.q("select public.recompute_week_scores($1, $2, $3)", [f.leagueId, SEASON, 1]);
+
+      assert.equal(await actual(f.leagueId, wr), 6, "5 for targets + 1 reception");
+      assert.equal(await actual(f.leagueId, rb), 1, "RB has no override: targets stay 0");
+    });
+
+    test("a position with no override uses the base rule", async () => {
+      const f = await league("no-override-base");
+      const rb = await player("BASE_RB", "Base RB", "RB");
+      await stats(rb, 1, { tackles_combined: 2 });
+
+      await setRule(f.leagueId, "tackles_combined", 5);
+      await setRule(f.leagueId, "tackles_combined", 0, ["WR"]);
+      await db.q("select public.recompute_week_scores($1, $2, $3)", [f.leagueId, SEASON, 1]);
+
+      assert.equal(await actual(f.leagueId, rb), 10);
+    });
+  });
+
   test("team defenses score through the same path as players", async () => {
     const f = await league("dst");
     await stats("DST_KC", 1, {
