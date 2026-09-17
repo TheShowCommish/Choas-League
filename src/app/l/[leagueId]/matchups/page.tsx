@@ -51,9 +51,14 @@ export default async function MatchupsPage({
   ]);
 
   const teamById = new Map(teams.map((t) => [t.id, t]));
-  const seeds = new Map(
-    ((seedRows ?? []) as PlayoffSeed[]).map((s) => [s.team_id, s.seed]),
-  );
+  // A team knocked out of the playoffs is seeded in both brackets.
+  const seedsIn = (bracket: PlayoffSeed["bracket"]) =>
+    new Map(
+      ((seedRows ?? []) as PlayoffSeed[])
+        .filter((s) => (s.bracket ?? "winners") === bracket)
+        .map((s) => [s.team_id, s.seed]),
+    );
+  const seeds = { winners: seedsIn("winners"), losers: seedsIn("losers") };
 
   return (
     <div className="space-y-4">
@@ -80,6 +85,9 @@ export default async function MatchupsPage({
           teamById={teamById}
           myTeamId={myTeam?.id ?? null}
           seeds={seeds}
+          losersMode={league.losers_mode}
+          losersEnabled={league.losers_bracket_enabled}
+          losersStartWeek={league.losers_start_week}
           selectedWeek={week}
         />
       ) : (

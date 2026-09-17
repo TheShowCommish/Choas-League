@@ -2,7 +2,35 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import {
+  losersEntrantCount,
+  losersShape,
+  roundSpans,
+  validateLosersBracket,
+  winnersShape,
+  type LosersSettings,
+  type RoundConfig,
+  type RoundShape,
+} from "@/lib/playoff-bracket";
+import { useWideScreen } from "@/lib/use-wide-screen";
 import { savePlayoffRounds, type AdminResult } from "./actions";
+import {
+  ChoiceGroup,
+  ENTRANT_OPTIONS,
+  FieldErrors,
+  MODE_OPTIONS,
+  RESEED_OPTIONS,
+  RoundEditor,
+  TimelineAcross,
+  TimelineDown,
+  defaultRoundName,
+  losersTitle,
+  placeProblems,
+  problemAnchor,
+  problemsFor,
+  type Problem,
+  type TimelineRow,
+} from "./playoff-setup-parts";
 
 export interface PlayoffRound {
   bracket: "winners" | "losers";
@@ -15,10 +43,20 @@ export interface PlayoffRound {
   byes: number;
 }
 
+/** Rounds as the save action reads them. */
+function toConfig(rounds: PlayoffRound[]): RoundConfig[] {
+  return rounds.map((r) => ({
+    name: r.name,
+    weeks: r.weeks,
+    teams: r.teams && r.teams >= 2 ? r.teams : null,
+    byes: Math.max(0, r.byes),
+  }));
+}
+
 /**
  * The shape of the playoffs.
  *
- * Rounds are laid end to end from the league's first playoff week, so a
+ * Rounds are laid end to end from their bracket's first week, so a
  * two-week semi-final pushes the final back on its own -- there is no
  * separate "which week is the final" setting to keep in step.
  *
@@ -26,25 +64,36 @@ export interface PlayoffRound {
  * a bye. Leaving the field blank keeps the old behaviour, which is that
  * everybody still standing plays. Byes always come off the top seeds,
  * and the number is adjusted by one where the field would otherwise not
- * pair off -- see settleByes below. Every round shows what it will
- * actually produce, so none of that has to be worked out by hand.
+ * pair off -- see settleByes. Every round shows what it will actually
+ * produce, so none of that has to be worked out by hand.
  *
- * The losers bracket is optional and starts when the first round of the
- * winners bracket has been played, because that is when there are
- * losers.
+ * The losers bracket is a separate tournament with its own first week,
+ * entrants, mode and seeding. Nothing about it is assumed: turning it on
+ * means choosing each. The problems listed under it are the ones the
+ * save action refuses (src/lib/playoff-bracket.ts).
+ *
+ * This component owns the state and the save; the two views below only
+ * lay it out. Desktop puts the brackets side by side under a timeline
+ * with weeks across, because this is a decision best made seeing both at
+ * once. The phone stacks everything under a timeline with weeks down.
  */
 export function PlayoffRounds({
   leagueId,
   startWeek,
   playoffTeams,
+  teamCount,
   rounds,
+  losers: savedLosers,
 }: {
   leagueId: string;
   startWeek: number;
   playoffTeams: number;
+  teamCount: number;
   rounds: PlayoffRound[];
+  losers: LosersSettings;
 }) {
   const router = useRouter();
+  const wide = useWideScreen();
   const [result, setResult] = useState<AdminResult>({});
   const [pending, startTransition] = useTransition();
 
@@ -58,268 +107,457 @@ export function PlayoffRounds({
       .filter((r) => r.bracket === "losers")
       .sort((a, b) => a.round_index - b.round_index),
   );
+  const [settings, setSettings] = useState<LosersSettings>(savedLosers);
+
+  const winnersPlan = winnersShape({
+    playoffStartWeek: startWeek,
+    playoffTeams,
+    teamCount,
+    rounds: toConfig(winners),
+  });
+  const entrants =
+    settings.enabled && settings.entrants && settings.startWeek != null
+      ? losersEntrantCount(settings, winnersPlan, teamCount)
+      : null;
+  const entrantCount = entrants && "count" in entrants ? entrants.count : null;
+  const problems = placeProblems(
+    validateLosersBracket({
+      settings,
+      rounds: toConfig(losers),
+      playoffStartWeek: startWeek,
+      playoffTeams,
+      teamCount,
+      winnersRounds: toConfig(winners),
+    }),
+  );
+
+  function patchSettings(changes: Partial<LosersSettings>) {
+    setSettings((current) => ({ ...current, ...changes }));
+  }
 
   function save() {
     startTransition(async () => {
-      const outcome = await savePlayoffRounds(leagueId, [
-        ...winners.map((r, i) => ({
-          ...r,
-          bracket: "winners" as const,
-          round_index: i + 1,
-        })),
-        ...losers.map((r, i) => ({
-          ...r,
-          bracket: "losers" as const,
-          round_index: i + 1,
-        })),
-      ]);
+      const outcome = await savePlayoffRounds(
+        leagueId,
+        [
+          ...winners.map((r, i) => ({
+            ...r,
+            bracket: "winners" as const,
+            round_index: i + 1,
+          })),
+          ...losers.map((r, i) => ({
+            ...r,
+            bracket: "losers" as const,
+            round_index: i + 1,
+          })),
+        ],
+        settings,
+      );
       setResult(outcome);
       if (!outcome.error) router.refresh();
     });
   }
 
+  // What the losers bracket's configured rounds will do, once there is
+  // a first week and a field to play them with.
+  const losersStart = settings.startWeek ?? startWeek;
+  const losersPlan: RoundShape[] =
+    entrantCount !== null && entrantCount >= 2 && settings.startWeek != null
+      ? losersShape(settings.startWeek, entrantCount, toConfig(losers), true)
+      : [];
+
+  const timeline: TimelineRow[] = [
+    {
+      bracket: "winners",
+      title: "Championship",
+      emptyText: "Needs at least two playoff teams.",
+      rounds: winnersPlan.map((shape, i) => ({
+        key: `w${shape.index}`,
+        name:
+          winners[i]?.name.trim() ||
+          defaultRoundName("winners", null, shape.index, shape),
+        from: shape.from,
+        to: shape.to,
+        automatic: i >= winners.length,
+        detail: `${shape.field} teams, ${shape.games} games, ${shape.byes} byes`,
+      })),
+    },
+    {
+      bracket: "losers",
+      title: settings.enabled ? losersTitle(settings.mode) : "Losers bracket",
+      emptyText: !settings.enabled
+        ? "Off."
+        : settings.startWeek == null
+          ? "Choose a first week."
+          : "No rounds yet.",
+      rounds:
+        settings.enabled && settings.startWeek != null
+          ? roundSpans(settings.startWeek, losers).map((span, i) => {
+              const shape = losersPlan[i];
+              return {
+                key: `l${i + 1}`,
+                name:
+                  losers[i].name.trim() ||
+                  defaultRoundName("losers", settings.mode, i + 1, shape),
+                from: span.from,
+                to: span.to,
+                automatic: false,
+                flagged:
+                  problemsFor(problems, { round: i + 1 }).length > 0 ||
+                  (i === 0 && problemsFor(problems, "startWeek").length > 0),
+                detail: shape
+                  ? `${shape.field} teams, ${shape.games} games, ${shape.byes} byes`
+                  : "field not known yet",
+              };
+            })
+          : [],
+    },
+  ];
+
+  const model: SetupModel = {
+    startWeek,
+    playoffField: Math.min(playoffTeams, teamCount),
+    winners,
+    setWinners,
+    winnersPlan,
+    losers,
+    setLosers,
+    losersPlan,
+    losersStart,
+    settings,
+    patchSettings,
+    entrantCount,
+    problems,
+    timeline,
+    result,
+    pending,
+    save,
+  };
+
+  return wide ? <DesktopView model={model} /> : <MobileView model={model} />;
+}
+
+interface SetupModel {
+  startWeek: number;
+  playoffField: number;
+  winners: PlayoffRound[];
+  setWinners: (next: PlayoffRound[]) => void;
+  winnersPlan: RoundShape[];
+  losers: PlayoffRound[];
+  setLosers: (next: PlayoffRound[]) => void;
+  losersPlan: RoundShape[];
+  losersStart: number;
+  settings: LosersSettings;
+  patchSettings: (changes: Partial<LosersSettings>) => void;
+  entrantCount: number | null;
+  problems: Problem[];
+  timeline: TimelineRow[];
+  result: AdminResult;
+  pending: boolean;
+  save: () => void;
+}
+
+// Views ----------------------------------------------------------------------
+
+function Intro() {
   return (
-    <section className="card space-y-4">
-      <div>
-        <h3 className="h2">Playoff bracket</h3>
-        <p className="muted text-sm">
-          Rounds run back to back from week {startWeek}. A two-week round
-          means one matchup whose score is both weeks added together.
-        </p>
-      </div>
-
-      <RoundList
-        bracket="winners"
-        title="Winners bracket"
-        startWeek={startWeek}
-        defaultField={playoffTeams}
-        rounds={winners}
-        setRounds={setWinners}
-        emptyHint="No rounds set, so the bracket is worked out from the number of playoff teams: one week each until somebody wins."
-      />
-
-      <RoundList
-        bracket="losers"
-        title="Losers bracket"
-        startWeek={startWeek + winners.reduce((n, r) => n + r.weeks, 0) || startWeek}
-        defaultField={0}
-        rounds={losers}
-        setRounds={setLosers}
-        emptyHint="No consolation games. Add a round and whoever loses in the winners bracket drops into it."
-      />
-
-      {result.error && <p className="error-box">{result.error}</p>}
-      {result.ok && <p className="ok-box">{result.ok}</p>}
-
-      <button className="btn btn-primary w-full" disabled={pending} onClick={save}>
-        {pending ? "Saving..." : "Save playoff rounds"}
-      </button>
-      <p className="muted text-xs">
-        Changing these does not move a bracket that has already been
-        generated. Regenerate it from the Tools tab.
+    <div>
+      <h3 className="h2">Playoff brackets</h3>
+      <p className="muted">
+        Two separate tournaments that can share weeks. Rounds run back to back
+        from each bracket&apos;s first week; a two-week round is one matchup
+        scored over both weeks.
       </p>
+    </div>
+  );
+}
+
+function DesktopView({ model }: { model: SetupModel }) {
+  return (
+    <section className="card space-y-5">
+      <Intro />
+      <div className="rounded-lg border border-border p-3">
+        <TimelineAcross rows={model.timeline} />
+      </div>
+      <div className="grid items-start gap-4 lg:grid-cols-2">
+        <WinnersPanel model={model} framed />
+        <LosersPanel model={model} framed />
+      </div>
+      <SaveBar model={model} />
+    </section>
+  );
+}
+
+function MobileView({ model }: { model: SetupModel }) {
+  return (
+    <section className="card space-y-5">
+      <Intro />
+      <TimelineDown rows={model.timeline} />
+      <WinnersPanel model={model} />
+      <LosersPanel model={model} />
+      <SaveBar model={model} />
     </section>
   );
 }
 
 /**
- * The byes a round will really get, mirroring playoff_round_byes in the
- * database so the preview and the bracket cannot disagree.
- *
- * The field left playing has to be even. A request that would leave it
- * odd is nudged up, because a bye promised to a top seed is worse to
- * take away than to hand out spare -- unless nudging up would put the
- * whole field on a bye and leave the round with no games at all.
+ * On desktop each bracket is its own bordered panel. On a phone the
+ * border would cost 24px of a 343px column, so a rule and a heading do
+ * the separating instead.
  */
-function settleByes(field: number, requested: number): number {
-  if (field <= 1) return 0;
-
-  const capped = Math.min(Math.max(requested, 0), field - 1);
-  if ((field - capped) % 2 === 0) return capped;
-  if (capped + 1 < field) return capped + 1;
-  return Math.max(capped - 1, 0);
+function panelClass(framed: boolean | undefined, tone: "winners" | "losers") {
+  const edge = tone === "winners" ? "border-t-accent" : "border-t-muted";
+  return framed
+    ? `space-y-4 rounded-lg border border-border border-t-4 ${edge} bg-surface p-4`
+    : `space-y-4 border-t-4 ${edge} pt-4`;
 }
 
-function RoundList({
-  bracket,
-  title,
-  startWeek,
-  defaultField,
-  rounds,
-  setRounds,
-  emptyHint,
+function WinnersPanel({
+  model,
+  framed,
 }: {
-  bracket: "winners" | "losers";
-  title: string;
-  startWeek: number;
-  /** The field size to suggest for a freshly added first round. */
-  defaultField: number;
-  rounds: PlayoffRound[];
-  setRounds: (next: PlayoffRound[]) => void;
-  emptyHint: string;
+  model: SetupModel;
+  framed?: boolean;
 }) {
-  // Which weeks each round occupies, worked out up front rather than
-  // accumulated during render.
-  const spans: { from: number; to: number }[] = [];
-  rounds.reduce((week, round) => {
-    spans.push({ from: week, to: week + round.weeks - 1 });
-    return week + round.weeks;
-  }, startWeek);
-
-  function patch(index: number, changes: Partial<PlayoffRound>) {
-    setRounds(rounds.map((r, i) => (i === index ? { ...r, ...changes } : r)));
-  }
+  const { startWeek, playoffField, winners, setWinners, winnersPlan } = model;
 
   return (
-    <div className="space-y-2">
-      <h4 className="text-sm font-semibold">{title}</h4>
+    <div className={panelClass(framed, "winners")}>
+      <header className="space-y-1">
+        <div className="flex items-center justify-between gap-2">
+          <h4 className="text-base font-semibold">Championship bracket</h4>
+          <span className="pill">Winners advance</span>
+        </div>
+        <p className="text-xs text-muted">
+          Starts week {startWeek} with {playoffField} team
+          {playoffField === 1 ? "" : "s"}. Change those in League settings
+          above.
+        </p>
+      </header>
 
-      {rounds.length === 0 ? (
-        <p className="muted text-xs">{emptyHint}</p>
-      ) : (
-        <ul className="space-y-3">
-          {rounds.map((round, index) => {
-            const { from, to } = spans[index];
-            const field = round.teams;
-            // What the round will actually look like once the bracket
-            // has refused to schedule half a matchup.
-            const byes = field ? settleByes(field, round.byes) : round.byes;
-            const games = field ? Math.max(0, (field - byes) / 2) : null;
+      <RoundEditor
+        bracket="winners"
+        mode={null}
+        startWeek={startWeek}
+        rounds={winners}
+        setRounds={setWinners}
+        shapes={winnersPlan}
+        spans={roundSpans(startWeek, winners)}
+        defaultField={playoffField}
+        problems={[]}
+        emptyHint={`No rounds set, so the bracket plays one-week rounds from week ${startWeek} until one team is left (dashed in the preview). Add rounds to name them or make one longer.`}
+      />
+    </div>
+  );
+}
 
-            return (
-              <li
-                key={index}
-                className="space-y-2 rounded-lg border border-border p-3"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold">
-                    Round {index + 1} &middot; week{from === to ? "" : "s"}{" "}
-                    {from === to ? from : `${from}-${to}`}
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-danger"
-                    onClick={() =>
-                      setRounds(rounds.filter((_, i) => i !== index))
-                    }
-                  >
-                    Remove
-                  </button>
-                </div>
+function LosersPanel({
+  model,
+  framed,
+}: {
+  model: SetupModel;
+  framed?: boolean;
+}) {
+  const { settings, patchSettings, problems, entrantCount, losers } = model;
+  const on = settings.enabled;
+  const unchosen =
+    on &&
+    !settings.entrants &&
+    !settings.mode &&
+    !settings.reseed &&
+    settings.startWeek == null;
+  // An empty box already wears "Choose one"; see ChoiceGroup.
+  const startProblems =
+    settings.startWeek == null ? [] : problemsFor(problems, "startWeek");
+  const startInvalid = startProblems.length > 0;
 
-                <div className="grid gap-2 sm:grid-cols-[1fr_5rem]">
-                  <div>
-                    <label className="label" htmlFor={`${title}-name-${index}`}>
-                      Name
-                    </label>
-                    <input
-                      id={`${title}-name-${index}`}
-                      className="input"
-                      placeholder="Name it, or leave blank"
-                      value={round.name}
-                      onChange={(e) => patch(index, { name: e.target.value })}
-                    />
-                  </div>
+  return (
+    <div className={panelClass(framed, "losers")}>
+      <header className="flex items-center justify-between gap-2">
+        <h4 className="text-base font-semibold">
+          {on ? losersTitle(settings.mode) : "Losers bracket"}
+        </h4>
+        {!on ? (
+          <span className="pill">Off</span>
+        ) : unchosen ? (
+          <span className="badge-todo">Not set up</span>
+        ) : problems.length > 0 ? (
+          <span className="badge-negative">{problems.length} to fix</span>
+        ) : (
+          <span className="pill border-positive/40 text-positive">Ready</span>
+        )}
+      </header>
 
-                  <div>
-                    <label className="label" htmlFor={`${title}-weeks-${index}`}>
-                      Weeks
-                    </label>
-                    <select
-                      id={`${title}-weeks-${index}`}
-                      className="input"
-                      value={round.weeks}
-                      onChange={(e) =>
-                        patch(index, { weeks: Number(e.target.value) })
-                      }
-                    >
-                      <option value={1}>1</option>
-                      <option value={2}>2</option>
-                      <option value={3}>3</option>
-                      <option value={4}>4</option>
-                    </select>
-                  </div>
-                </div>
+      <label className="choice">
+        <input
+          type="checkbox"
+          role="switch"
+          checked={on}
+          onChange={(e) => patchSettings({ enabled: e.target.checked })}
+        />
+        <span className="min-w-0">
+          <span className="block font-medium">Run a losers bracket</span>
+          <span className="block text-xs text-muted">
+            A second tournament for teams out of the title race, with its own
+            weeks, rounds and seeds.
+          </span>
+        </span>
+      </label>
 
-                <div className="grid gap-2 sm:grid-cols-2">
-                  <div>
-                    <label className="label" htmlFor={`${title}-teams-${index}`}>
-                      Teams in this round
-                    </label>
-                    <input
-                      id={`${title}-teams-${index}`}
-                      className="input"
-                      type="number"
-                      min={2}
-                      max={32}
-                      placeholder="Everyone left"
-                      value={round.teams ?? ""}
-                      onChange={(e) =>
-                        patch(index, {
-                          teams: e.target.value ? Number(e.target.value) : null,
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div>
-                    <label className="label" htmlFor={`${title}-byes-${index}`}>
-                      On a bye
-                    </label>
-                    <input
-                      id={`${title}-byes-${index}`}
-                      className="input"
-                      type="number"
-                      min={0}
-                      max={31}
-                      value={round.byes}
-                      onChange={(e) =>
-                        patch(index, { byes: Number(e.target.value) || 0 })
-                      }
-                    />
-                  </div>
-                </div>
-
-                <p className="muted text-xs">
-                  {games === null
-                    ? "Everybody still standing plays, paired by seed."
-                    : games === 0
-                      ? "Nobody plays: every team in this round is on a bye."
-                      : `${games} game${games === 1 ? "" : "s"}` +
-                        (byes > 0
-                          ? `, top ${byes} seed${byes === 1 ? "" : "s"} on a bye`
-                          : ", no byes") +
-                        (byes !== round.byes
-                          ? " — one bye added so the field pairs off evenly."
-                          : ".")}
-                </p>
-              </li>
-            );
-          })}
-        </ul>
+      {!on && losers.length > 0 && (
+        <p className="text-xs text-muted">
+          Its {losers.length} round{losers.length === 1 ? " is" : "s are"} kept
+          for when you turn it back on.
+        </p>
       )}
 
-      <button
-        type="button"
-        className="btn btn-sm w-full"
-        onClick={() =>
-          setRounds([
-            ...rounds,
-            {
-              bracket,
-              round_index: rounds.length + 1,
-              name: "",
-              weeks: 1,
-              // The first round starts from the league's playoff field;
-              // later rounds default to whoever survived.
-              teams: rounds.length === 0 && defaultField >= 2 ? defaultField : null,
-              byes: 0,
-            },
-          ])
-        }
-      >
-        Add a round
-      </button>
+      {on && (
+        <>
+          {unchosen && (
+            <p className="rounded-md border border-accent/40 bg-accent/10 px-3 py-2 text-sm">
+              Nothing is assumed. Choose who plays, who advances, how it&apos;s
+              seeded and when it starts.
+            </p>
+          )}
+
+          <ChoiceGroup
+            id={problemAnchor("entrants")}
+            name="losers-entrants"
+            legend="Who plays in it"
+            options={ENTRANT_OPTIONS}
+            value={settings.entrants}
+            onChange={(entrants) => patchSettings({ entrants })}
+            problems={problemsFor(problems, "entrants")}
+          />
+
+          <ChoiceGroup
+            id={problemAnchor("mode")}
+            name="losers-mode"
+            legend="Who advances"
+            options={MODE_OPTIONS}
+            value={settings.mode}
+            onChange={(mode) => patchSettings({ mode })}
+            problems={problemsFor(problems, "mode")}
+          />
+
+          <ChoiceGroup
+            id={problemAnchor("reseed")}
+            name="losers-reseed"
+            legend="Seeding after round 1"
+            options={RESEED_OPTIONS}
+            value={settings.reseed}
+            onChange={(reseed) => patchSettings({ reseed })}
+            problems={problemsFor(problems, "reseed")}
+          />
+
+          <div id={problemAnchor("startWeek")} className="scroll-mt-24">
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <label
+                className="text-sm font-semibold"
+                htmlFor="losers-start-week"
+              >
+                First week
+              </label>
+              {settings.startWeek == null && (
+                <span className="badge-todo">Choose one</span>
+              )}
+            </div>
+            <input
+              id="losers-start-week"
+              className="input max-w-32"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={18}
+              placeholder="Week"
+              value={settings.startWeek ?? ""}
+              aria-invalid={startInvalid || undefined}
+              aria-describedby="losers-start-week-hint losers-start-week-errors"
+              onChange={(e) =>
+                patchSettings({
+                  startWeek: e.target.value ? Number(e.target.value) : null,
+                })
+              }
+            />
+            <p id="losers-start-week-hint" className="mt-1 text-xs text-muted">
+              The playoffs start week {model.startWeek}. Start the same week a
+              championship round starts, or after the final.
+            </p>
+            <FieldErrors id="losers-start-week-errors" problems={startProblems} />
+          </div>
+
+          {entrantCount !== null && (
+            <p className="text-sm">
+              <span className="font-semibold tabular-nums">{entrantCount}</span>{" "}
+              team{entrantCount === 1 ? "" : "s"} will enter, going by the
+              saved playoff settings.
+            </p>
+          )}
+
+          <div className="space-y-2">
+            <h5 className="text-sm font-semibold">Rounds</h5>
+            <RoundEditor
+              bracket="losers"
+              mode={settings.mode}
+              startWeek={model.losersStart}
+              rounds={losers}
+              setRounds={model.setLosers}
+              shapes={model.losersPlan}
+              spans={roundSpans(model.losersStart, losers)}
+              defaultField={entrantCount ?? 0}
+              problems={problems}
+              emptyHint="No rounds yet. Add one for each round the losers bracket plays."
+            />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SaveBar({ model }: { model: SetupModel }) {
+  const { problems, result, pending, save } = model;
+
+  return (
+    <div className="space-y-3 border-t border-border pt-4">
+      {problems.length > 0 && (
+        <div className="error-box space-y-1">
+          <p className="font-semibold">
+            Fix {problems.length === 1 ? "this" : `these ${problems.length}`}{" "}
+            before saving:
+          </p>
+          <ul className="list-disc space-y-1 pl-5">
+            {problems.map((p) => (
+              <li key={p.text}>
+                <a
+                  href={`#${problemAnchor(p.target)}`}
+                  className="underline decoration-negative/50 underline-offset-2 hover:decoration-negative"
+                >
+                  {p.text}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {result.error && <p className="error-box">{result.error}</p>}
+      {result.ok && <p className="ok-box">{result.ok}</p>}
+
+      <div className="flex flex-col gap-2 md:flex-row-reverse md:items-center md:justify-between md:gap-4">
+        <button
+          type="button"
+          className="btn btn-primary w-full md:w-auto"
+          disabled={pending}
+          onClick={save}
+        >
+          {pending ? "Saving..." : "Save playoff brackets"}
+        </button>
+        <p className="muted text-xs">
+          Saving doesn&apos;t move a bracket that&apos;s already been generated.
+          Regenerate it from the Tools tab.
+        </p>
+      </div>
     </div>
   );
 }

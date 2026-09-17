@@ -109,7 +109,15 @@ export function AdminTabs({
             leagueId={league.id}
             startWeek={league.playoff_start_week}
             playoffTeams={league.playoff_teams}
+            teamCount={league.team_count}
             rounds={playoffRounds}
+            losers={{
+              enabled: league.losers_bracket_enabled,
+              entrants: league.losers_entrants,
+              mode: league.losers_mode,
+              reseed: league.losers_reseed,
+              startWeek: league.losers_start_week,
+            }}
           />
         </>}
       {tab === "tools" && (

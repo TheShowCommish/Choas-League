@@ -32,6 +32,12 @@ export interface League {
   regular_season_weeks: number;
   playoff_start_week: number;
   playoff_teams: number;
+  /** The losers bracket. Every choice below is null until one is made. */
+  losers_bracket_enabled: boolean;
+  losers_entrants: "eliminated_playoff_teams" | "non_playoff_teams" | "both" | null;
+  losers_mode: "consolation" | "toilet_bowl" | null;
+  losers_reseed: "fixed" | "reseed" | null;
+  losers_start_week: number | null;
   draft_type: "snake" | "auction";
   waiver_type: "faab" | "priority";
   faab_budget: number;
@@ -181,6 +187,8 @@ export interface Matchup {
   away_score: number;
   is_playoff: boolean;
   playoff_round: string | null;
+  /** The place in the draw a fixed bracket pairs by. Null outside playoffs. */
+  bracket_slot: number | null;
   status: "scheduled" | "in_progress" | "final";
 }
 
@@ -188,6 +196,8 @@ export interface Matchup {
 export interface PlayoffSeed {
   league_id: string;
   season: number;
+  /** A team knocked out of the playoffs is seeded in both brackets. */
+  bracket: "winners" | "losers";
   team_id: string;
   seed: number;
 }

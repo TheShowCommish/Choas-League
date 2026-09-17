@@ -22,6 +22,7 @@ export function MatchupSide({
   seed = null,
   showScore = true,
   size = 28,
+  advances = false,
 }: {
   team: Team | null;
   score: number;
@@ -31,6 +32,12 @@ export function MatchupSide({
   seed?: number | null;
   showScore?: boolean;
   size?: number;
+  /**
+   * Goes through despite not being the winner: the loser of a final
+   * toilet bowl game. Said in words, because bold on the other side
+   * would otherwise suggest the opposite.
+   */
+  advances?: boolean;
 }) {
   if (!team) {
     return (
@@ -71,6 +78,11 @@ export function MatchupSide({
       >
         {team.name}
       </span>
+      {advances && (
+        <span className="badge-negative px-1.5">
+          <span aria-hidden>&darr;</span> Advances
+        </span>
+      )}
       {showScore && (
         <span
           className={`shrink-0 tabular-nums ${winner ? "font-semibold" : "text-muted"}`}
@@ -101,6 +113,7 @@ export function MatchupCard({
   compact = false,
   seeds,
   week,
+  losersAdvance = false,
 }: {
   leagueId: string;
   matchup: Matchup;
@@ -113,6 +126,8 @@ export function MatchupCard({
   seeds?: Map<string, number>;
   /** The week being browsed, so a multi-week card can say "Week 2 of 2". */
   week?: number;
+  /** A toilet bowl game, where the losing side is the one that goes on. */
+  losersAdvance?: boolean;
 }) {
   const isFinal = matchup.status === "final";
   // Neither side wins a tie.
@@ -138,6 +153,7 @@ export function MatchupCard({
         winner={isFinal && awayWon && away !== null}
         seed={away ? (seeds?.get(away.id) ?? null) : null}
         size={compact ? 22 : 28}
+        advances={losersAdvance && homeWon && away !== null}
       />
       <MatchupSide
         team={home}
@@ -145,6 +161,7 @@ export function MatchupCard({
         winner={isFinal && homeWon}
         seed={home ? (seeds?.get(home.id) ?? null) : null}
         size={compact ? 22 : 28}
+        advances={losersAdvance && awayWon}
       />
       <div className="flex items-center gap-2 px-1">
         <p className="muted min-w-0 flex-1 truncate text-xs">

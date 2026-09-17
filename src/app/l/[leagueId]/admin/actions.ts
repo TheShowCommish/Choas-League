@@ -3,6 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import {
+  validateLosersBracket,
+  type LosersSettings,
+  type RoundConfig,
+} from "@/lib/playoff-bracket";
 
 export interface AdminResult {
   error?: string;
@@ -23,6 +28,62 @@ async function assertCommissioner(leagueId: string) {
   return supabase;
 }
 
+/**
+ * Why changing the playoff start, the playoff field or the league size
+ * would break a losers bracket that is switched on, or null if it would
+ * not. A losers bracket is validated against those when it is saved, so
+ * changing them afterwards has to pass the same checks.
+ */
+async function losersBracketProblems(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  leagueId: string,
+  changes: { playoffStartWeek?: number; playoffTeams?: number; teamCount?: number },
+): Promise<string | null> {
+  const { data: league } = await supabase
+    .from("leagues")
+    .select(
+      "playoff_start_week, playoff_teams, team_count, losers_bracket_enabled, losers_entrants, losers_mode, losers_reseed, losers_start_week",
+    )
+    .eq("id", leagueId)
+    .single();
+  if (!league || !league.losers_bracket_enabled) return null;
+
+  const { data: rows } = await supabase
+    .from("league_playoff_rounds")
+    .select("bracket, round_index, name, weeks, teams, byes")
+    .eq("league_id", leagueId)
+    .order("round_index");
+
+  const toConfig = (bracket: "winners" | "losers"): RoundConfig[] =>
+    (rows ?? [])
+      .filter((r) => r.bracket === bracket)
+      .map((r) => ({
+        name: r.name as string,
+        weeks: r.weeks as number,
+        teams: (r.teams as number | null) ?? null,
+        byes: r.byes as number,
+      }));
+
+  const problems = validateLosersBracket({
+    settings: {
+      enabled: true,
+      entrants: league.losers_entrants,
+      mode: league.losers_mode,
+      reseed: league.losers_reseed,
+      startWeek: league.losers_start_week,
+    },
+    rounds: toConfig("losers"),
+    playoffStartWeek: changes.playoffStartWeek ?? league.playoff_start_week,
+    playoffTeams: changes.playoffTeams ?? league.playoff_teams,
+    teamCount: changes.teamCount ?? league.team_count,
+    winnersRounds: toConfig("winners"),
+  });
+
+  return problems.length > 0
+    ? `That would break the losers bracket: ${problems.join(" ")} Change the losers bracket first, or switch it off.`
+    : null;
+}
+
 function num(formData: FormData, key: string, fallback: number): number {
   const value = Number(formData.get(key));
   return Number.isFinite(value) ? value : fallback;
@@ -36,6 +97,12 @@ export async function saveLeagueSettings(
 
   try {
     const supabase = await assertCommissioner(leagueId);
+
+    const losersProblem = await losersBracketProblems(supabase, leagueId, {
+      playoffStartWeek: num(formData, "playoff_start_week", 15),
+      playoffTeams: num(formData, "playoff_teams", 6),
+    });
+    if (losersProblem) return { error: losersProblem };
 
     const { error } = await supabase
       .from("leagues")
@@ -425,12 +492,22 @@ export async function advancePlayoffs(
   });
   if (error) return { error: error.message };
 
+  // The season only ends once the losers bracket is done as well, so
+  // "nothing created" no longer means "that was the final".
+  const { data: league } = await supabase
+    .from("leagues")
+    .select("status")
+    .eq("id", leagueId)
+    .single();
+
   revalidatePath(`/l/${leagueId}`, "layout");
   return {
     ok:
-      data === 0
-        ? "That was the final. The season is complete."
-        : `Next round created: ${data} matchup(s).`,
+      league?.status === "complete"
+        ? "Both brackets are finished. The season is complete."
+        : data === 0
+          ? "Nothing to advance yet."
+          : `Next round created: ${data} matchup(s).`,
   };
 }
 
@@ -477,7 +554,52 @@ export async function finalizeWeek(
   }
 }
 
-/** Replace the playoff round configuration in one go. */
+/**
+ * The losers bracket settings as sent, reduced to values the database
+ * accepts, or null if any is something else entirely.
+ */
+function cleanLosersSettings(raw: LosersSettings): LosersSettings | null {
+  const pick = <T extends string>(value: unknown, allowed: readonly T[]) =>
+    value === null || value === undefined || value === ""
+      ? null
+      : allowed.includes(value as T)
+        ? (value as T)
+        : undefined;
+
+  const entrants = pick(raw?.entrants, [
+    "eliminated_playoff_teams",
+    "non_playoff_teams",
+    "both",
+  ] as const);
+  const mode = pick(raw?.mode, ["consolation", "toilet_bowl"] as const);
+  const reseed = pick(raw?.reseed, ["fixed", "reseed"] as const);
+  const startWeek =
+    raw?.startWeek === null || raw?.startWeek === undefined
+      ? null
+      : Number.isInteger(raw.startWeek) && raw.startWeek >= 1
+        ? raw.startWeek
+        : undefined;
+
+  if (
+    entrants === undefined ||
+    mode === undefined ||
+    reseed === undefined ||
+    startWeek === undefined
+  ) {
+    return null;
+  }
+
+  return { enabled: raw.enabled === true, entrants, mode, reseed, startWeek };
+}
+
+/**
+ * Replace the playoff round configuration, and the losers bracket
+ * settings, in one go.
+ *
+ * The losers bracket is checked here against the league's saved playoff
+ * settings before anything is written, with the same rules the preview
+ * shows (src/lib/playoff-bracket.ts).
+ */
 export async function savePlayoffRounds(
   leagueId: string,
   rounds: {
@@ -488,9 +610,41 @@ export async function savePlayoffRounds(
     teams: number | null;
     byes: number;
   }[],
+  losers: LosersSettings,
 ): Promise<AdminResult> {
   try {
     const supabase = await assertCommissioner(leagueId);
+
+    const settings = cleanLosersSettings(losers);
+    if (!settings) return { error: "Those losers bracket settings aren't valid." };
+
+    const { data: league } = await supabase
+      .from("leagues")
+      .select("playoff_start_week, playoff_teams, team_count")
+      .eq("id", leagueId)
+      .single();
+    if (!league) return { error: "League not found." };
+
+    const toConfig = (bracket: "winners" | "losers"): RoundConfig[] =>
+      rounds
+        .filter((r) => r.bracket === bracket)
+        .sort((a, b) => a.round_index - b.round_index)
+        .map((r) => ({
+          name: r.name,
+          weeks: r.weeks,
+          teams: r.teams && r.teams >= 2 ? r.teams : null,
+          byes: Math.max(0, r.byes),
+        }));
+
+    const problems = validateLosersBracket({
+      settings,
+      rounds: toConfig("losers"),
+      playoffStartWeek: league.playoff_start_week,
+      playoffTeams: league.playoff_teams,
+      teamCount: league.team_count,
+      winnersRounds: toConfig("winners"),
+    });
+    if (problems.length > 0) return { error: problems.join(" ") };
 
     // Replace rather than upsert: a round the commissioner removed has
     // to disappear, and an upsert cannot express that.
@@ -516,6 +670,18 @@ export async function savePlayoffRounds(
       );
       if (error) return { error: error.message };
     }
+
+    const { error: settingsError } = await supabase
+      .from("leagues")
+      .update({
+        losers_bracket_enabled: settings.enabled,
+        losers_entrants: settings.entrants,
+        losers_mode: settings.mode,
+        losers_reseed: settings.reseed,
+        losers_start_week: settings.startWeek,
+      })
+      .eq("id", leagueId);
+    if (settingsError) return { error: settingsError.message };
 
     revalidatePath(`/l/${leagueId}`, "layout");
     return {
@@ -553,6 +719,12 @@ export async function setTeamCount(
   count: number,
 ): Promise<AdminResult> {
   const supabase = await createClient();
+
+  const losersProblem = await losersBracketProblems(supabase, leagueId, {
+    teamCount: count,
+  });
+  if (losersProblem) return { error: losersProblem };
+
   const { error } = await supabase.rpc("set_team_count", {
     p_league: leagueId,
     p_count: count,

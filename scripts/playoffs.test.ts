@@ -231,6 +231,15 @@ describe("custom playoff shapes", () => {
     );
     await configureRounds(f.leagueId, "winners", [1, 1]);
     await configureRounds(f.leagueId, "losers", [1]);
+    await db.q(
+      `update public.leagues
+         set losers_bracket_enabled = true,
+             losers_entrants = 'eliminated_playoff_teams',
+             losers_mode = 'consolation', losers_reseed = 'reseed',
+             losers_start_week = 16
+       where id = $1`,
+      [f.leagueId],
+    );
     await seedRecords(f, f.teamIds);
     await db.q("select public.generate_playoffs($1)", [f.leagueId]);
 
@@ -247,7 +256,11 @@ describe("custom playoff shapes", () => {
       [f.leagueId],
     );
     assert.equal(losers.length, 1, "the two beaten semi-finalists meet");
-    assert.equal(losers[0].playoff_round, "Consolation");
+    assert.equal(
+      losers[0].playoff_round,
+      "Consolation Final",
+      "an unnamed round is named for the mode",
+    );
   });
 
   test("without a losers bracket configured, nothing extra is created", async () => {

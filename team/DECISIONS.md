@@ -29,3 +29,8 @@ The executive can reverse any of them. Mark reviewed entries with ✔ in CHECKIN
 | 2026-09-16 | T-036 | Default trade review = commissioner, 24h window; deadline defaults to the week before playoffs (all per-league settings) | Lead | yes |
 | 2026-09-16 | T-036 | Default seeding tiebreakers = head-to-head, then points for | Lead | yes |
 | 2026-09-16 | T-007 | A player who no longer scores has his stored week score row deleted (not set to 0); blank positional points box is an error | engineer | yes |
+| 2026-09-16 | T-008 | Split-view convention: server-rendered pages render both Desktop and Mobile views and hide one with CSS; client forms pick one view with the use-wide-screen hook (avoids duplicate form ids) | designer | yes |
+| 2026-09-16 | T-008 | Desktop/mobile breakpoint is lg (1024px) per Q9; nav and hook currently use md (768px) and move in T-018 | Lead | yes |
+| 2026-09-16 | T-008 | Existing leagues with losers rounds map to: on, eliminated playoff teams, consolation, reseed, start week after winners round 1; all others off with no choices; enabling requires all choices. Difference: old code also made beaten semifinalists play a "Consolation" game; new model only takes losers present at the losers start week (acceptable, nothing is real yet; regenerate test brackets after db:push) | engineer | yes |
+| 2026-09-16 | T-008 | Toilet bowl seeds worst record as seed 1; fallback round names "Consolation/Toilet Bowl Round N / Final" | engineer | yes |
+| 2026-09-16 | T-008 | A losers bracket switched off mid-playoffs still finishes its existing games; switching off only prevents starting a new one | engineer | yes |
