@@ -1,13 +1,13 @@
 # Check-in — 2026-09-16
 
-## Needs you (4)
-1. **Database connection string.** `db:push` can't reach Supabase: `SUPABASE_DB_URL` in `.env.local` is the IPv6-only direct connection. Replace it with the **Session pooler** string (Supabase → Project Settings → Database → Connection string → Session pooler, then add your password). **3 migrations are waiting (0038–0040)**; until they're applied, weekly finalizing, the zero-point fix and the new losers bracket won't work on the live site.
-2. **Secrets.** Confirm these are set, or scheduled jobs can't run. In Vercel: the Supabase URL, anon key, service role key and `CRON_SECRET`. In GitHub repo secrets: `APP_URL` (your Vercel URL) and `CRON_SECRET` (same value as in Vercel).
-3. **Q11** Should only league members be able to read team points (security)? Recommend A: yes.
-4. **Q12** Keeper/dynasty leagues before 2027? Recommend A if any of your leagues keep players year to year; otherwise B.
+## Needs you (3)
+1. **Secrets.** Confirm these are set, or scheduled jobs can't run. In Vercel: the Supabase URL, anon key, service role key and `CRON_SECRET`. In GitHub repo secrets: `APP_URL` (your Vercel URL) and `CRON_SECRET` (same value as in Vercel).
+2. **Q11** Should only league members be able to read team points (security)? Recommend A: yes.
+3. **Q12** Keeper/dynasty leagues before 2027? Recommend A if any of your leagues keep players year to year; otherwise B.
    → reply e.g. "Q11: A, Q12: B"
 
 ## Shipped this run
+- Database updated: migrations 0038–0040 applied to Supabase (finalizing, zero-point fix, losers bracket now live)
 - T-006 Matchups finalize automatically; multi-week playoff rounds close only after their last week; commissioner "Finalize week" button. Also fixed: scheduled jobs had never actually run. (3ad6b8d)
 - T-009 Multi-week matchups show on every page; Week/Total switcher; ties no longer show a winner (1b4f8e3)
 - T-017 Phone nav: 5 icon tabs + "More" sheet (2f2d6af)
