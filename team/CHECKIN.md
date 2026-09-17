@@ -1,25 +1,30 @@
 # Check-in — 2026-09-16
 
 ## Needs you (4)
-1. **Database connection string** — `npm run db:push` can't reach Supabase: `SUPABASE_DB_URL` in `.env.local` is the direct connection (IPv6-only). Replace it with the **Session pooler** string (Supabase → Project Settings → Database → Connection string → Session pooler; paste your password in). Until then migration 0038 isn't applied and the finalize job/button will error.
-2. **Vercel + GitHub secrets** — confirm these are set, or scheduled jobs can't run: Vercel env vars `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`; GitHub repo secrets `APP_URL` (your Vercel URL) and `CRON_SECRET` (same value).
-3. Q11 Lock down who can read team points (security)? Recommend A: members only.
-4. Q12 Keeper/dynasty leagues before 2027? Recommend A if any league keeps players; else B.
+1. **Database connection string.** `db:push` can't reach Supabase: `SUPABASE_DB_URL` in `.env.local` is the IPv6-only direct connection. Replace it with the **Session pooler** string (Supabase → Project Settings → Database → Connection string → Session pooler, then add your password). **3 migrations are waiting (0038–0040)**; until they're applied, weekly finalizing, the zero-point fix and the new losers bracket won't work on the live site.
+2. **Secrets.** Confirm these are set, or scheduled jobs can't run. In Vercel: the Supabase URL, anon key, service role key and `CRON_SECRET`. In GitHub repo secrets: `APP_URL` (your Vercel URL) and `CRON_SECRET` (same value as in Vercel).
+3. **Q11** Should only league members be able to read team points (security)? Recommend A: yes.
+4. **Q12** Keeper/dynasty leagues before 2027? Recommend A if any of your leagues keep players year to year; otherwise B.
    → reply e.g. "Q11: A, Q12: B"
 
-## Shipped since last check-in
-- T-009 Multi-week matchups show on every page; matchup page has Week/Total switcher; ties no longer show a winner (1b4f8e3)
-- T-017 Phone nav: 5 icon tabs + "More" sheet; theme and sign out moved into it (2f2d6af)
-- Rules updated with your answers: Vercel, test on current DB, automated migrations, every league format is a per-league setting, desktop = decisions / mobile = quick actions, target 2027
-- T-036 Settings audit: 25 hard-coded league rules found → 8 new tasks. Biggest bug: **lineups don't lock** (a manager can start a player whose game already ended) → T-039 P0
+## Shipped this run
+- T-006 Matchups finalize automatically; multi-week playoff rounds close only after their last week; commissioner "Finalize week" button. Also fixed: scheduled jobs had never actually run. (3ad6b8d)
+- T-009 Multi-week matchups show on every page; Week/Total switcher; ties no longer show a winner (1b4f8e3)
+- T-017 Phone nav: 5 icon tabs + "More" sheet (2f2d6af)
+- T-007 A 0-point position override now scores zero (e.g. WR tackles = 0); projections no longer double-count base + override (eeda779)
+- T-008 Losers bracket is fully configurable per league: who plays, consolation or toilet bowl, fixed or re-seeded, own rounds and start week. New desktop/mobile setup screen with a schedule preview; bracket tabs on phones. (548a348)
+- Audits: settings-first (25 hard-coded league rules → tasks). Biggest finding: **lineups don't lock at kickoff** (T-039, P0, up soon)
 
 ## Decisions the team made
-- Desktop/mobile built as separate view components per page, chosen by screen width
-- Defaults (all changeable per league): fixed playoff bracket, commissioner trade review 24h, trade deadline week before playoffs, seeding tiebreak head-to-head then points for
-- Multi-week lineups stacked on desktop; phone tabs Home/Team/Matchups/Players/More
+- Defaults, all changeable per league: fixed playoff bracket; commissioner trade review, 24h; trade deadline the week before playoffs; seeding tiebreak head-to-head, then points for
+- Unconfigured losers brackets assume nothing; the commissioner must choose every option
+- A losers bracket switched off mid-playoffs still finishes its games
+- Desktop/mobile split at 1024px site-wide (nav + new screens currently 768px, moving in T-018)
+- A player who stops scoring has his stored week score removed rather than set to 0
 
 ## Please test by hand
-- On an iPhone: the new bottom nav and More sheet (safe-area spacing can't be emulated)
+- On an iPhone: the bottom nav and "More" sheet (safe-area spacing can't be emulated)
+- Everything else was verified by agents (361 automated tests), except screens behind login. To let agents test those, sign into the site once in the app's built-in browser.
 
 ## Up next
-T-007 zero-point overrides → T-008 losers bracket settings → T-010 seeding/tiebreak settings → T-018 desktop shell → T-039 lineup lock
+T-010 seeding/tiebreak settings → T-018 desktop layout (+1024px split) → T-021 split views pilot → T-039 lineup lock → T-040 trade review settings
