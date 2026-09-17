@@ -54,7 +54,7 @@ _none_
 ## Done
 | ID | Task | Commit |
 |----|------|--------|
-| T-008 | Losers bracket is a real, per-league configured bracket (entrants, consolation/toilet bowl, fixed/reseed, own rounds + start week); league completes only when both brackets finish; new setup screen + bracket tabs | (this commit) |
+| T-008 | Losers bracket is a real, per-league configured bracket (entrants, consolation/toilet bowl, fixed/reseed, own rounds + start week); league completes only when both brackets finish; new setup screen + bracket tabs | 548a348 |
 | T-007 | Position override of 0 now scores zero (actual + all projections); season projections no longer add base + override | eeda779 |
 | T-017 | Phone nav: 5 icon tabs + More sheet (Trades, Standings, Log, Chat, Draft, Admin, theme, Sign out) | 2f2d6af |
 | T-036 | Settings-first audit: 25 hard-coded rules found; 8 new tasks, 5 tasks expanded, Q12 raised | (docs) |
