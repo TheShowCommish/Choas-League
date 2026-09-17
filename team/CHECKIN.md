@@ -1,31 +1,25 @@
 # Check-in — 2026-09-16
 
-## Needs you (8)
-1. Q3 Hosting — GitHub Pages can't run this app (needs a server). Recommend A: Vercel free tier.
-2. Q5 Live DB migrations — who runs `db:push`? Recommend A: team, after tests pass. **Migration 0038 (T-006) is pushed but not applied**: until it is, the new finalize job and "Finalize week" button will error.
-3. Q4 Test database for logged-in testing — Recommend A: a second free Supabase project.
-4. Q6 0-point position override = zero (rescore existing leagues)? Recommend A. (blocks T-007)
-5. Q7 Losers bracket default — Recommend B: toilet bowl. (blocks T-008)
-6. Q8 Rewards/punishments — Recommend A: labels only for now. (blocks T-011)
-7. Q9 Desktop/mobile architecture — Recommend A: one data load, two views chosen by screen width. (blocks T-021–T-024)
-8. Q10 Rule changes vs finished weeks — Recommend C: finished weeks locked + "rescore finished weeks" checkbox.
-   → reply e.g. "Q3: A, Q5: A, …" (details in team/QUESTIONS.md)
+## Needs you (4)
+1. **Database connection string** — `npm run db:push` can't reach Supabase: `SUPABASE_DB_URL` in `.env.local` is the direct connection (IPv6-only). Replace it with the **Session pooler** string (Supabase → Project Settings → Database → Connection string → Session pooler; paste your password in). Until then migration 0038 isn't applied and the finalize job/button will error.
+2. **Vercel + GitHub secrets** — confirm these are set, or scheduled jobs can't run: Vercel env vars `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET`; GitHub repo secrets `APP_URL` (your Vercel URL) and `CRON_SECRET` (same value).
+3. Q11 Lock down who can read team points (security)? Recommend A: members only.
+4. Q12 Keeper/dynasty leagues before 2027? Recommend A if any league keeps players; else B.
+   → reply e.g. "Q11: A, Q12: B"
 
 ## Shipped since last check-in
-- Baseline: all prior work committed + pushed (cd81b46)
-- T-006 Matchups now finalize automatically; multi-week playoff rounds close only after their last week; commissioner "Finalize week" override (3ad6b8d)
-- T-006 Fixed: scheduled jobs (stats sync, live scores) were being redirected to the login page and never ran, while GitHub showed them green. They now reach the app, and the workflow goes red on failure.
-- Audits done: health check (T-001), core promises (T-002), desktop/mobile (T-004) → 25 tasks on the board
+- T-009 Multi-week matchups show on every page; matchup page has Week/Total switcher; ties no longer show a winner (1b4f8e3)
+- T-017 Phone nav: 5 icon tabs + "More" sheet; theme and sign out moved into it (2f2d6af)
+- Rules updated with your answers: Vercel, test on current DB, automated migrations, every league format is a per-league setting, desktop = decisions / mobile = quick actions, target 2027
+- T-036 Settings audit: 25 hard-coded league rules found → 8 new tasks. Biggest bug: **lineups don't lock** (a manager can start a player whose game already ended) → T-039 P0
 
 ## Decisions the team made
-- Week auto-closes only when all games are final, official stats are in, and 36h have passed; only for leagues in season
-- Stats job syncs the latest started week + the one before (was stuck on league "current week")
-- Finalized weeks keep results when scoring rules change (pending Q10)
-- Desktop/mobile work that doesn't depend on Q9 proceeds now; phone draft room set low priority (season underway)
+- Desktop/mobile built as separate view components per page, chosen by screen width
+- Defaults (all changeable per league): fixed playoff bracket, commissioner trade review 24h, trade deadline week before playoffs, seeding tiebreak head-to-head then points for
+- Multi-week lineups stacked on desktop; phone tabs Home/Team/Matchups/Players/More
 
-## Please test by hand (only what agents couldn't verify)
-- Nothing yet. Admin → Tools → "Finalize a week" is untested while logged in (needs Q4), and only works after Q5.
-- Heads-up: scheduled GitHub Actions may now show red. That's correct: they were failing silently before (see Q3).
+## Please test by hand
+- On an iPhone: the new bottom nav and More sheet (safe-area spacing can't be emulated)
 
 ## Up next
-T-009 multi-week matchups visible everywhere → T-017 mobile bottom nav → T-018 desktop shell → T-019 tap targets → T-020 live score refresh
+T-007 zero-point overrides → T-008 losers bracket settings → T-010 seeding/tiebreak settings → T-018 desktop shell → T-039 lineup lock

@@ -123,3 +123,12 @@ Options:
   B) Leave it — scores aren't sensitive
 Recommendation: A, because it's a small, low-risk change and there's no reason outsiders should see league data
 Answer:
+
+## Q12 — Keeper and dynasty leagues in scope for 2027?              [OPEN]
+Blocks: T-044 (and future-season pick trading in T-045)
+Question: Supporting keeper/dynasty leagues means a league carries over from season to season (rosters, keepers, future picks). Should the team build that before 2027?
+Options:
+  A) Yes, build multi-season support (redraft, keeper, dynasty as a league setting) before 2027
+  B) Redraft only for 2027; design data so multi-season can be added later
+Recommendation: A if any of your leagues keep players year to year; otherwise B saves significant time
+Answer:

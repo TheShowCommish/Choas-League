@@ -25,3 +25,6 @@ The executive can reverse any of them. Mark reviewed entries with ✔ in CHECKIN
 | 2026-09-16 | Q9 | Architecture A: each page loads data once, renders separate Desktop and Mobile view components chosen by screen width | Lead | yes |
 | 2026-09-16 | T-017 | Keep viewportFit "cover" site-wide (required for iPhone safe-area padding) | designer | yes |
 | 2026-09-16 | T-017 | Phone tabs: Home, Team, Matchups, Players, More; Draft listed first in More when open; sheet is a native dialog | designer | yes |
+| 2026-09-16 | T-036 | Default playoff bracket = fixed (no re-seeding), as ESPN does; reseed is a per-bracket setting | Lead | yes |
+| 2026-09-16 | T-036 | Default trade review = commissioner, 24h window; deadline defaults to the week before playoffs (all per-league settings) | Lead | yes |
+| 2026-09-16 | T-036 | Default seeding tiebreakers = head-to-head, then points for | Lead | yes |
