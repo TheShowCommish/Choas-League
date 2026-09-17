@@ -53,7 +53,7 @@ _none_
 ## Done
 | ID | Task | Commit |
 |----|------|--------|
-| T-007 | Position override of 0 now scores zero (actual + all projections); season projections no longer add base + override | (this commit) |
+| T-007 | Position override of 0 now scores zero (actual + all projections); season projections no longer add base + override | eeda779 |
 | T-017 | Phone nav: 5 icon tabs + More sheet (Trades, Standings, Log, Chat, Draft, Admin, theme, Sign out) | 2f2d6af |
 | T-036 | Settings-first audit: 25 hard-coded rules found; 8 new tasks, 5 tasks expanded, Q12 raised | (docs) |
 | T-009 | Multi-week matchups found on every page; matchup detail Week/Total switcher, per-week box score; ties show no winner | 1b4f8e3 |
