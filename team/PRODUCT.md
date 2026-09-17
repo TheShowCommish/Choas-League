@@ -31,6 +31,10 @@ Full **desktop** and full **mobile** experiences. Same data at all times, but
 - **Mobile = quick actions.** Fewer statistics; set lineup, check score, accept
   a trade, claim a player, chat, in as few taps as possible.
 
+## Scope and privacy (executive, 2026-09-16)
+- **Redraft leagues only.** Keeper and dynasty leagues are out of scope.
+- **League data is private.** A user can only see leagues they belong to; nothing about another league is readable, in the UI or the database.
+
 ## Timeline
 Nothing is live yet. Goal: **ready for real leagues by the 2027 season.**
 

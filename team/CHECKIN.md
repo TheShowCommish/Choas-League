@@ -1,10 +1,10 @@
 # Check-in — 2026-09-16
 
-## Needs you (3)
-1. **Secrets.** Confirm these are set, or scheduled jobs can't run. In Vercel: the Supabase URL, anon key, service role key and `CRON_SECRET`. In GitHub repo secrets: `APP_URL` (your Vercel URL) and `CRON_SECRET` (same value as in Vercel).
-2. **Q11** Should only league members be able to read team points (security)? Recommend A: yes.
-3. **Q12** Keeper/dynasty leagues before 2027? Recommend A if any of your leagues keep players year to year; otherwise B.
-   → reply e.g. "Q11: A, Q12: B"
+## Needs you (1)
+1. **The live site is down (500 on every page, including /login).** The login check reads the Supabase URL and key, and they aren't reaching Vercel. That's also why every scheduled job has failed since at least Sept 14.
+   - Vercel → Project → Settings → Environment Variables. Add for Production, Preview and Development: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `CRON_SECRET` (copy the values from `.env.local`).
+   - Then Deployments → the latest one → ⋯ → **Redeploy**. Environment variable changes only apply to new deployments.
+   - GitHub → Settings → Secrets and variables → Actions: `APP_URL` = `https://choas-league.vercel.app`, `CRON_SECRET` = the same value.
 
 ## Shipped this run
 - Database updated: migrations 0038–0040 applied to Supabase (finalizing, zero-point fix, losers bracket now live)
