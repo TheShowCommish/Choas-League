@@ -57,7 +57,7 @@ _none_
 ## Done
 | ID | Task | Commit |
 |----|------|--------|
-| T-010 | Per-league seeding tiebreakers, fixed/reseed brackets, playoff tie rules (by seed, never lets the worse team escape); standings sort like the bracket; tied games show the tiebreak winner | (this commit) |
+| T-010 | Per-league seeding tiebreakers, fixed/reseed brackets, playoff tie rules (by seed, never lets the worse team escape); standings sort like the bracket; tied games show the tiebreak winner | 7fae67a |
 | T-008 | Losers bracket is a real, per-league configured bracket (entrants, consolation/toilet bowl, fixed/reseed, own rounds + start week); league completes only when both brackets finish; new setup screen + bracket tabs | 548a348 |
 | T-007 | Position override of 0 now scores zero (actual + all projections); season projections no longer add base + override | eeda779 |
 | T-017 | Phone nav: 5 icon tabs + More sheet (Trades, Standings, Log, Chat, Draft, Admin, theme, Sign out) | 2f2d6af |
