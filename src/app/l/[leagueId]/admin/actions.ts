@@ -4,9 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
+  cleanSeedingSettings,
   validateLosersBracket,
   type LosersSettings,
   type RoundConfig,
+  type SeedingSettings,
 } from "@/lib/playoff-bracket";
 
 export interface AdminResult {
@@ -593,12 +595,14 @@ function cleanLosersSettings(raw: LosersSettings): LosersSettings | null {
 }
 
 /**
- * Replace the playoff round configuration, and the losers bracket
- * settings, in one go.
+ * Replace the playoff round configuration, the losers bracket settings
+ * and the seeding and tiebreak settings, in one go.
  *
  * The losers bracket is checked here against the league's saved playoff
  * settings before anything is written, with the same rules the preview
- * shows (src/lib/playoff-bracket.ts).
+ * shows (src/lib/playoff-bracket.ts). Every choice is re-read from the
+ * allowed values on the way in, so nothing but a known setting reaches
+ * the column -- the browser is not trusted to have sent one.
  */
 export async function savePlayoffRounds(
   leagueId: string,
@@ -611,12 +615,18 @@ export async function savePlayoffRounds(
     byes: number;
   }[],
   losers: LosersSettings,
+  seeding: SeedingSettings,
 ): Promise<AdminResult> {
   try {
     const supabase = await assertCommissioner(leagueId);
 
     const settings = cleanLosersSettings(losers);
     if (!settings) return { error: "Those losers bracket settings aren't valid." };
+
+    const seedingSettings = cleanSeedingSettings(seeding);
+    if (!seedingSettings) {
+      return { error: "Those seeding and tiebreak settings aren't valid." };
+    }
 
     const { data: league } = await supabase
       .from("leagues")
@@ -679,6 +689,10 @@ export async function savePlayoffRounds(
         losers_mode: settings.mode,
         losers_reseed: settings.reseed,
         losers_start_week: settings.startWeek,
+        seeding_tiebreakers: seedingSettings.tiebreakers,
+        playoff_reseed: seedingSettings.winnersReseed,
+        playoff_tiebreak: seedingSettings.winnersTiebreak,
+        losers_tiebreak: seedingSettings.losersTiebreak,
       })
       .eq("id", leagueId);
     if (settingsError) return { error: settingsError.message };

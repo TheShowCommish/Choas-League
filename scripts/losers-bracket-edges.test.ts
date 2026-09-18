@@ -430,7 +430,7 @@ describe("a losers bracket that can never have two teams", () => {
 });
 
 describe("a tie in a toilet bowl game", () => {
-  test("the home side (the worse record) takes the tie, so the away side goes on", async () => {
+  test("the tie sends the worse team down, so nobody escapes on a draw", async () => {
     const s: Scenario = {
       name: "lbe-toilet-tie",
       teams: 6,
@@ -446,15 +446,17 @@ describe("a tie in a toilet bowl game", () => {
     await finish(f.leagueId, "losers", 15, () => [80, 80]);
     await advance(f.leagueId, 15);
 
-    // Pinned current behaviour (T-010 owns the tiebreak): the tie goes to
-    // the home side, which in a toilet bowl is the WORSE team, so the worse
-    // team escapes and the better team drops into the next round.
+    // T-010: the default game tiebreak is higher_seed, which means the
+    // top seed of THIS bracket goes through. A toilet bowl seeds the
+    // worst record first, so seeds 1 and 2 -- the two worst teams, and
+    // the home sides of 1v4 and 2v3 -- keep sinking. A draw is never a
+    // worse team's way out.
     const final = await games(f.leagueId, "losers", 16);
     assert.equal(final.length, 1);
     assert.deepEqual(
       [final[0].home_team_id, final[0].away_team_id].sort(),
-      [seeds[3], seeds[2]].sort(),
-      "the away sides of 1v4 and 2v3 go through",
+      [seeds[0], seeds[1]].sort(),
+      "the home sides of 1v4 and 2v3 go through",
     );
     assert.equal(await playOut(f.leagueId, 16), 16);
   });

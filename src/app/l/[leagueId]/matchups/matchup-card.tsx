@@ -23,6 +23,7 @@ export function MatchupSide({
   showScore = true,
   size = 28,
   advances = false,
+  tiebreak = false,
 }: {
   team: Team | null;
   score: number;
@@ -38,6 +39,13 @@ export function MatchupSide({
    * would otherwise suggest the opposite.
    */
   advances?: boolean;
+  /**
+   * Won a game that finished level, on the league's tiebreak. Said in
+   * words, because otherwise a bold name beside an equal score reads as
+   * a mistake -- and in a tied final it is the only thing that names
+   * the champion.
+   */
+  tiebreak?: boolean;
 }) {
   if (!team) {
     return (
@@ -78,6 +86,17 @@ export function MatchupSide({
       >
         {team.name}
       </span>
+      {tiebreak && (
+        <span
+          className="badge-tiebreak"
+          title="Tied on points; won on the league's tiebreak"
+        >
+          {/* One word, so a phone keeps the team's name: beside a bold
+              name and a level score it can only mean the win. */}
+          Tiebreak
+          <span className="sr-only">: won on the league&apos;s tiebreak</span>
+        </span>
+      )}
       {advances && (
         <span className="badge-negative px-1.5">
           <span aria-hidden>&darr;</span> Advances
@@ -114,6 +133,7 @@ export function MatchupCard({
   seeds,
   week,
   losersAdvance = false,
+  advancingTeamId = null,
 }: {
   leagueId: string;
   matchup: Matchup;
@@ -128,10 +148,44 @@ export function MatchupCard({
   week?: number;
   /** A toilet bowl game, where the losing side is the one that goes on. */
   losersAdvance?: boolean;
+  /**
+   * Who the database will carry into the next round, from
+   * playoff_advancers_for. It is not always the loser of a toilet bowl
+   * game: a tie is settled by the league's own tiebreak (0041), so the
+   * tag has to come from the same place the bracket does.
+   */
+  advancingTeamId?: string | null;
 }) {
   const isFinal = matchup.status === "final";
-  // Neither side wins a tie.
-  const winnerSide = matchupWinner(matchup);
+  const scoreWinner = matchupWinner(matchup);
+
+  // A playoff game that ends level still sends one team on: the league's
+  // tiebreak decides it (0041), and advancingTeamId says who that was.
+  // In a winners or consolation bracket the team going through is the
+  // winner; in a toilet bowl it is the one that lost the tiebreak and
+  // sinks, so the other side is the winner. A bye is never a tie, and a
+  // regular-season tie (no advancer) stays a tie.
+  const tiedAdvancer =
+    isFinal &&
+    scoreWinner === null &&
+    home !== null &&
+    away !== null &&
+    matchup.away_team_id !== null &&
+    (advancingTeamId === home.id || advancingTeamId === away.id)
+      ? advancingTeamId === home.id
+        ? "home"
+        : "away"
+      : null;
+  const tiebreakWinner =
+    tiedAdvancer === null
+      ? null
+      : losersAdvance
+        ? tiedAdvancer === "home"
+          ? "away"
+          : "home"
+        : tiedAdvancer;
+
+  const winnerSide = scoreWinner ?? tiebreakWinner;
   const homeWon = winnerSide === "home";
   const awayWon = winnerSide === "away";
 
@@ -153,7 +207,13 @@ export function MatchupCard({
         winner={isFinal && awayWon && away !== null}
         seed={away ? (seeds?.get(away.id) ?? null) : null}
         size={compact ? 22 : 28}
-        advances={losersAdvance && homeWon && away !== null}
+        advances={
+          losersAdvance &&
+          isFinal &&
+          away !== null &&
+          advancingTeamId === away.id
+        }
+        tiebreak={tiebreakWinner === "away"}
       />
       <MatchupSide
         team={home}
@@ -161,7 +221,13 @@ export function MatchupCard({
         winner={isFinal && homeWon}
         seed={home ? (seeds?.get(home.id) ?? null) : null}
         size={compact ? 22 : 28}
-        advances={losersAdvance && awayWon}
+        advances={
+          losersAdvance &&
+          isFinal &&
+          home !== null &&
+          advancingTeamId === home.id
+        }
+        tiebreak={tiebreakWinner === "home"}
       />
       <div className="flex items-center gap-2 px-1">
         <p className="muted min-w-0 flex-1 truncate text-xs">

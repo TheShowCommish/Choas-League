@@ -43,6 +43,159 @@ export interface LosersSettings {
   startWeek: number | null;
 }
 
+/**
+ * Whether the winners bracket keeps its draw or re-seeds. The same two
+ * choices the losers bracket has; see LosersReseed.
+ */
+export type PlayoffReseed = LosersReseed;
+
+/**
+ * What settles a playoff game the two teams finished level on.
+ *
+ * higher_seed  the top seed of that bracket goes through. In a toilet
+ *              bowl the seeding is turned over, so the top seed is the
+ *              WORST team -- a draw can never be its way out.
+ * bench_points the bigger bench over the matchup's weeks wins the game,
+ *              and the bracket decides what winning is worth.
+ * points_for   the same, on points for over the season.
+ *
+ * There is no "split": a round has to send exactly one team on, so a
+ * tie that stands is not something a bracket can express (0041).
+ */
+export type PlayoffTiebreak = "higher_seed" | "bench_points" | "points_for";
+
+/**
+ * What separates teams level on wins and losses, applied in the order
+ * the league listed them.
+ *
+ * division_record is accepted and does nothing until divisions exist
+ * (T-041); coin_flip is deterministic, not random (see 0041).
+ */
+export type SeedingTiebreaker =
+  | "head_to_head"
+  | "points_for"
+  | "points_against"
+  | "division_record"
+  | "coin_flip";
+
+export const SEEDING_TIEBREAKERS: SeedingTiebreaker[] = [
+  "head_to_head",
+  "points_for",
+  "points_against",
+  "division_record",
+  "coin_flip",
+];
+
+/** What a league that has never touched the setting uses. */
+export const DEFAULT_SEEDING_TIEBREAKERS: SeedingTiebreaker[] = [
+  "head_to_head",
+  "points_for",
+];
+
+/** The league-wide seeding and tiebreak settings, as one form's worth. */
+export interface SeedingSettings {
+  /** Applied in order, after wins and losses. */
+  tiebreakers: SeedingTiebreaker[];
+  winnersReseed: PlayoffReseed;
+  winnersTiebreak: PlayoffTiebreak;
+  losersTiebreak: PlayoffTiebreak;
+}
+
+export const DEFAULT_SEEDING_SETTINGS: SeedingSettings = {
+  tiebreakers: DEFAULT_SEEDING_TIEBREAKERS,
+  winnersReseed: "fixed",
+  winnersTiebreak: "higher_seed",
+  losersTiebreak: "higher_seed",
+};
+
+/**
+ * The settings as they can be saved, or null if anything in them is not
+ * one of the choices. Duplicates are dropped, keeping the first place
+ * each one appears; an empty list means wins and losses alone.
+ *
+ * The save action runs this before writing, so a hand-made request
+ * cannot put a value in the column the bracket would not understand.
+ */
+export function cleanSeedingSettings(
+  raw: SeedingSettings | null | undefined,
+): SeedingSettings | null {
+  if (!raw) return null;
+
+  const tiebreakers: SeedingTiebreaker[] = [];
+  for (const value of raw.tiebreakers ?? []) {
+    if (!SEEDING_TIEBREAKERS.includes(value)) return null;
+    if (!tiebreakers.includes(value)) tiebreakers.push(value);
+  }
+
+  const reseed: PlayoffReseed[] = ["fixed", "reseed"];
+  const tiebreak: PlayoffTiebreak[] = [
+    "higher_seed",
+    "bench_points",
+    "points_for",
+  ];
+  if (!reseed.includes(raw.winnersReseed)) return null;
+  if (!tiebreak.includes(raw.winnersTiebreak)) return null;
+  if (!tiebreak.includes(raw.losersTiebreak)) return null;
+
+  return {
+    tiebreakers,
+    winnersReseed: raw.winnersReseed,
+    winnersTiebreak: raw.winnersTiebreak,
+    losersTiebreak: raw.losersTiebreak,
+  };
+}
+
+/**
+ * Which side of a playoff game goes through, mirroring
+ * playoff_game_advancer in 0041 so the tests can hold the two against
+ * each other.
+ *
+ * `losersAdvance` is the bracket's rule, not the game's. `homeKey` and
+ * `awayKey` are the tiebreak's measure of each side (bench points,
+ * points for), higher being better, and are read only when the scores
+ * are level. `homeSeed` and `awaySeed` are the two teams' seeds in this
+ * bracket, which a fixed draw does not keep in the same order as the
+ * home and away sides: the winner of 1v8 is at home against the winner
+ * of 4v5 holding the worse seed of the two.
+ */
+export function playoffAdvancer({
+  homeScore,
+  awayScore,
+  hasAway = true,
+  losersAdvance = false,
+  tiebreak = "higher_seed",
+  homeKey = 0,
+  awayKey = 0,
+  homeSeed = null,
+  awaySeed = null,
+}: {
+  homeScore: number;
+  awayScore: number;
+  hasAway?: boolean;
+  losersAdvance?: boolean;
+  tiebreak?: PlayoffTiebreak;
+  homeKey?: number;
+  awayKey?: number;
+  homeSeed?: number | null;
+  awaySeed?: number | null;
+}): "home" | "away" {
+  if (!hasAway) return "home";
+  if (homeScore > awayScore) return losersAdvance ? "away" : "home";
+  if (awayScore > homeScore) return losersAdvance ? "home" : "away";
+  if (tiebreak !== "higher_seed" && homeKey !== awayKey) {
+    return (homeKey > awayKey) !== losersAdvance ? "home" : "away";
+  }
+  // higher_seed, or level on the tiebreak too: the better seed of this
+  // bracket goes through. A toilet bowl seeds the worst record first,
+  // so its better seed is the worse team and it keeps sinking.
+  if (homeSeed !== null && awaySeed !== null && homeSeed !== awaySeed) {
+    return homeSeed < awaySeed ? "home" : "away";
+  }
+  // No seeds to compare, which only happens to a bracket built before
+  // they were written: the home side falls back in.
+  return "home";
+}
+
 /** One configured round, as stored in league_playoff_rounds. */
 export interface RoundConfig {
   name: string;

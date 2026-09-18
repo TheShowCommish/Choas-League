@@ -38,6 +38,7 @@ export function PlayoffBracket({
   losersEnabled = false,
   losersStartWeek = null,
   selectedWeek,
+  advancing,
 }: {
   leagueId: string;
   matchups: Matchup[];
@@ -52,9 +53,11 @@ export function PlayoffBracket({
   losersStartWeek?: number | null;
   /** The week picked above, so its round is marked in the draw. */
   selectedWeek: number;
+  /** matchup id -> the team the database sends into the next round. */
+  advancing: Map<string, string>;
 }) {
   const brackets = bracketsOf(matchups, losersMode, losersEnabled, losersStartWeek);
-  const shared = { leagueId, teamById, myTeamId, seeds, selectedWeek };
+  const shared = { leagueId, teamById, myTeamId, seeds, selectedWeek, advancing };
 
   return (
     <>
@@ -78,6 +81,7 @@ interface Shared {
   myTeamId: string | null;
   seeds: { winners: Map<string, number>; losers: Map<string, number> };
   selectedWeek: number;
+  advancing: Map<string, string>;
 }
 
 interface BracketInfo {
@@ -209,6 +213,7 @@ function Cards({
       compact={compact}
       week={shared.selectedWeek}
       losersAdvance={bracket.losersAdvance}
+      advancingTeamId={shared.advancing.get(m.id) ?? null}
     />
   ));
 }

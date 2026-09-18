@@ -11,6 +11,7 @@ import {
   type LosersSettings,
   type RoundConfig,
   type RoundShape,
+  type SeedingSettings,
 } from "@/lib/playoff-bracket";
 import { useWideScreen } from "@/lib/use-wide-screen";
 import { savePlayoffRounds, type AdminResult } from "./actions";
@@ -21,6 +22,7 @@ import {
   MODE_OPTIONS,
   RESEED_OPTIONS,
   RoundEditor,
+  TiebreakerOrder,
   TimelineAcross,
   TimelineDown,
   defaultRoundName,
@@ -28,6 +30,8 @@ import {
   placeProblems,
   problemAnchor,
   problemsFor,
+  tiebreakNote,
+  tiebreakOptions,
   type Problem,
   type TimelineRow,
 } from "./playoff-setup-parts";
@@ -84,6 +88,7 @@ export function PlayoffRounds({
   teamCount,
   rounds,
   losers: savedLosers,
+  seeding: savedSeeding,
 }: {
   leagueId: string;
   startWeek: number;
@@ -91,6 +96,7 @@ export function PlayoffRounds({
   teamCount: number;
   rounds: PlayoffRound[];
   losers: LosersSettings;
+  seeding: SeedingSettings;
 }) {
   const router = useRouter();
   const wide = useWideScreen();
@@ -108,6 +114,7 @@ export function PlayoffRounds({
       .sort((a, b) => a.round_index - b.round_index),
   );
   const [settings, setSettings] = useState<LosersSettings>(savedLosers);
+  const [seeding, setSeeding] = useState<SeedingSettings>(savedSeeding);
 
   const winnersPlan = winnersShape({
     playoffStartWeek: startWeek,
@@ -135,6 +142,10 @@ export function PlayoffRounds({
     setSettings((current) => ({ ...current, ...changes }));
   }
 
+  function patchSeeding(changes: Partial<SeedingSettings>) {
+    setSeeding((current) => ({ ...current, ...changes }));
+  }
+
   function save() {
     startTransition(async () => {
       const outcome = await savePlayoffRounds(
@@ -152,6 +163,7 @@ export function PlayoffRounds({
           })),
         ],
         settings,
+        seeding,
       );
       setResult(outcome);
       if (!outcome.error) router.refresh();
@@ -226,6 +238,8 @@ export function PlayoffRounds({
     losersStart,
     settings,
     patchSettings,
+    seeding,
+    patchSeeding,
     entrantCount,
     problems,
     timeline,
@@ -249,6 +263,8 @@ interface SetupModel {
   losersStart: number;
   settings: LosersSettings;
   patchSettings: (changes: Partial<LosersSettings>) => void;
+  seeding: SeedingSettings;
+  patchSeeding: (changes: Partial<SeedingSettings>) => void;
   entrantCount: number | null;
   problems: Problem[];
   timeline: TimelineRow[];
@@ -279,6 +295,7 @@ function DesktopView({ model }: { model: SetupModel }) {
       <div className="rounded-lg border border-border p-3">
         <TimelineAcross rows={model.timeline} />
       </div>
+      <SeedingPanel model={model} />
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <WinnersPanel model={model} framed />
         <LosersPanel model={model} framed />
@@ -293,6 +310,7 @@ function MobileView({ model }: { model: SetupModel }) {
     <section className="card space-y-5">
       <Intro />
       <TimelineDown rows={model.timeline} />
+      <SeedingPanel model={model} />
       <WinnersPanel model={model} />
       <LosersPanel model={model} />
       <SaveBar model={model} />
@@ -312,6 +330,48 @@ function panelClass(framed: boolean | undefined, tone: "winners" | "losers") {
     : `space-y-4 border-t-4 ${edge} pt-4`;
 }
 
+/**
+ * How the seeds are worked out in the first place.
+ *
+ * League-wide rather than per bracket: both brackets are drawn from the
+ * one regular season table, so the order only has to be decided once.
+ * Wins and losses always come first and are not a choice.
+ */
+function SeedingPanel({ model }: { model: SetupModel }) {
+  const { seeding, patchSeeding } = model;
+
+  return (
+    // Framed and tinted on both views, where a bracket panel is a
+    // coloured top edge: this one setting feeds both brackets, so it
+    // should not look like a third bracket.
+    <section
+      aria-labelledby="seeding-heading"
+      className="space-y-3 rounded-lg border border-border bg-surface-2/50 p-4"
+    >
+      <header className="space-y-1">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h4 id="seeding-heading" className="text-base font-semibold">
+            Seeding order
+          </h4>
+          <span className="pill">Applies to both brackets</span>
+        </div>
+        <p className="text-xs text-muted">
+          How the regular season table becomes seeds, before either bracket
+          is drawn. Wins come first, then losses — those are not a choice.
+          The list below settles teams still level, in the order you put
+          them in.
+        </p>
+      </header>
+
+      <TiebreakerOrder
+        id="seeding-tiebreakers"
+        value={seeding.tiebreakers}
+        onChange={(tiebreakers) => patchSeeding({ tiebreakers })}
+      />
+    </section>
+  );
+}
+
 function WinnersPanel({
   model,
   framed,
@@ -320,6 +380,7 @@ function WinnersPanel({
   framed?: boolean;
 }) {
   const { startWeek, playoffField, winners, setWinners, winnersPlan } = model;
+  const { seeding, patchSeeding } = model;
 
   return (
     <div className={panelClass(framed, "winners")}>
@@ -334,6 +395,27 @@ function WinnersPanel({
           above.
         </p>
       </header>
+
+      <ChoiceGroup
+        id="winners-reseed"
+        name="winners-reseed"
+        legend="Seeding after round 1"
+        options={RESEED_OPTIONS}
+        value={seeding.winnersReseed}
+        onChange={(winnersReseed) => patchSeeding({ winnersReseed })}
+        problems={[]}
+      />
+
+      <ChoiceGroup
+        id="winners-tiebreak"
+        name="winners-tiebreak"
+        legend="If a game ends level"
+        note={tiebreakNote("winners", null)}
+        options={tiebreakOptions(false)}
+        value={seeding.winnersTiebreak}
+        onChange={(winnersTiebreak) => patchSeeding({ winnersTiebreak })}
+        problems={[]}
+      />
 
       <RoundEditor
         bracket="winners"
@@ -444,10 +526,32 @@ function LosersPanel({
             id={problemAnchor("reseed")}
             name="losers-reseed"
             legend="Seeding after round 1"
+            note={
+              settings.mode === "toilet_bowl"
+                ? "Seeds run the other way in a toilet bowl: its top seed is the worst team left."
+                : undefined
+            }
             options={RESEED_OPTIONS}
             value={settings.reseed}
             onChange={(reseed) => patchSettings({ reseed })}
             problems={problemsFor(problems, "reseed")}
+          />
+
+          <ChoiceGroup
+            id="losers-tiebreak"
+            name="losers-tiebreak"
+            legend={
+              settings.mode === "toilet_bowl"
+                ? "If a toilet bowl game ends level"
+                : "If a game ends level"
+            }
+            note={tiebreakNote("losers", settings.mode)}
+            options={tiebreakOptions(settings.mode === "toilet_bowl")}
+            value={model.seeding.losersTiebreak}
+            onChange={(losersTiebreak) =>
+              model.patchSeeding({ losersTiebreak })
+            }
+            problems={[]}
           />
 
           <div id={problemAnchor("startWeek")} className="scroll-mt-24">

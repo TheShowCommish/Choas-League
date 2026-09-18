@@ -13,6 +13,7 @@ import { SettingsPanel } from "./settings-panel";
 import { ScoringPanel } from "./scoring-panel";
 import { RosterPanel } from "./roster-panel";
 import { ToolsPanel } from "./tools-panel";
+import { DEFAULT_SEEDING_TIEBREAKERS } from "@/lib/playoff-bracket";
 import { PlayoffRounds, type PlayoffRound } from "./playoff-rounds";
 
 export interface IngestRun {
@@ -117,6 +118,13 @@ export function AdminTabs({
               mode: league.losers_mode,
               reseed: league.losers_reseed,
               startWeek: league.losers_start_week,
+            }}
+            seeding={{
+              tiebreakers:
+                league.seeding_tiebreakers ?? DEFAULT_SEEDING_TIEBREAKERS,
+              winnersReseed: league.playoff_reseed ?? "fixed",
+              winnersTiebreak: league.playoff_tiebreak ?? "higher_seed",
+              losersTiebreak: league.losers_tiebreak ?? "higher_seed",
             }}
           />
         </>}

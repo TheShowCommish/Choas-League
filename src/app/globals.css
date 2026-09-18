@@ -253,6 +253,31 @@ body {
       text-accent;
   }
 
+  /* A setting that is saved and legal but has nothing to act on yet.
+     Dashed to say "waiting", accent rather than red because nothing is
+     wrong -- see division_record until divisions exist. */
+  .badge-pending {
+    @apply inline-flex items-center rounded-full border border-dashed
+      border-accent/50 bg-accent/10 px-2 py-0.5 text-xs font-medium
+      whitespace-nowrap text-accent;
+  }
+
+  /* A playoff game that ended level, marked on the side that won it on
+     the league's tiebreak. Accent, not green: it is a ruling, not a
+     bigger score, and it has to read differently from an ordinary win. */
+  .badge-tiebreak {
+    @apply inline-flex shrink-0 items-center rounded-full border
+      border-accent/50 bg-accent/10 px-1.5 py-0.5 text-xs font-semibold
+      whitespace-nowrap text-accent;
+  }
+
+  /* A calm aside: something the commissioner should not miss, but that
+     needs no action. The error box's shape in the accent colour. */
+  .note {
+    @apply flex gap-2 rounded-md border border-accent/30 bg-accent/5 px-3
+      py-2 text-xs text-muted;
+  }
+
   /* Losing colour: a toilet bowl, where losing is how you advance (so it
      can't be mistaken for an ordinary bracket), or a count of problems. */
   .badge-negative {

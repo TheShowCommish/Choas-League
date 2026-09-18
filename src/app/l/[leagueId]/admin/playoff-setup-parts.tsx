@@ -1,14 +1,18 @@
 "use client";
 
-import { Fragment, useId } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import {
   NFL_LAST_WEEK,
+  SEEDING_TIEBREAKERS,
   settleByes,
   type LosersEntrants,
   type LosersMode,
   type LosersReseed,
+  type PlayoffTiebreak,
   type RoundShape,
+  type SeedingTiebreaker,
 } from "@/lib/playoff-bracket";
+import { SEEDING_TIEBREAKER_COPY } from "../seeding-copy";
 import type { PlayoffRound } from "./playoff-rounds";
 
 /*
@@ -52,7 +56,7 @@ export const MODE_OPTIONS: ChoiceOption<LosersMode>[] = [
   {
     value: "toilet_bowl",
     label: "Toilet bowl: losers advance",
-    hint: "Losers keep playing; the last team standing finishes last.",
+    hint: "Winning a game is how you escape; the loser sinks to the next round, and the last team left finishes last.",
   },
 ];
 
@@ -68,6 +72,349 @@ export const RESEED_OPTIONS: ChoiceOption<LosersReseed>[] = [
     hint: "After each round, the best seed left plays the worst.",
   },
 ];
+
+/**
+ * The tiebreak options a bracket's games use. The wording of
+ * higher_seed changes with the bracket, because in a toilet bowl the
+ * top seed is the worst team and going through is the punishment -- see
+ * playoff_game_advancer in 0041.
+ */
+export function tiebreakOptions(
+  losersAdvance: boolean,
+): ChoiceOption<PlayoffTiebreak>[] {
+  return [
+    {
+      value: "higher_seed",
+      label: losersAdvance
+        ? "Top seed of the toilet bowl sinks"
+        : "Top seed of this bracket wins",
+      hint: losersAdvance
+        ? "The toilet bowl's top seed is its worst team, so it keeps sinking: a draw is never a way out."
+        : "The better seed wins and goes through, as ESPN does.",
+    },
+    {
+      value: "bench_points",
+      label: losersAdvance
+        ? "Most bench points escapes"
+        : "Most bench points wins",
+      hint: losersAdvance
+        ? "The bigger bench over the matchup's weeks wins and is out; the other team sinks to the next round."
+        : "The bigger bench over the matchup's weeks wins and goes through.",
+    },
+    {
+      value: "points_for",
+      label: losersAdvance
+        ? "Most points for this season escapes"
+        : "Most points for this season wins",
+      hint: losersAdvance
+        ? "The higher-scoring season wins and is out; the other team sinks to the next round."
+        : "The higher-scoring season wins and goes through.",
+    },
+  ];
+}
+
+/**
+ * The line above "If a game ends level", so a commissioner reads the
+ * options knowing which way this bracket runs. A toilet bowl needs it
+ * most: winning a game is how a team gets out of it.
+ */
+export function tiebreakNote(
+  bracket: "winners" | "losers",
+  mode: LosersMode | null,
+): string {
+  if (bracket === "winners") {
+    return "Two teams finish a matchup on exactly the same score. The winner goes through; this decides who that is.";
+  }
+  if (mode === "toilet_bowl") {
+    return "In the toilet bowl the winner of a game escapes and the loser sinks to the next round. On an exact tie, this decides who won — and so who got out.";
+  }
+  return "Two teams finish a matchup on exactly the same score. The winner goes through; this decides who that is.";
+}
+
+/** The plain-English order, ending in whatever has the last word. */
+function SeedingOrderSummary({ value }: { value: SeedingTiebreaker[] }) {
+  const chips: { key: string; text: string; dormant?: boolean }[] = [
+    { key: "wins", text: "wins" },
+    { key: "losses", text: "losses" },
+    ...value.map((key) => ({
+      key,
+      text: SEEDING_TIEBREAKER_COPY[key].short,
+      dormant: SEEDING_TIEBREAKER_COPY[key].dormant,
+    })),
+  ];
+  // A coin flip separates everyone, so nothing can reach the fallback.
+  if (!value.includes("coin_flip")) {
+    chips.push({ key: "fallback", text: "fixed fallback order" });
+  }
+
+  return (
+    <div className="rounded-md border border-border bg-surface-2/60 px-3 py-2">
+      <p className="text-xs font-medium text-muted">Seeds are decided by</p>
+      <p className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
+        {chips.map((chip, i) => (
+          <Fragment key={chip.key}>
+            {i > 0 && (
+              <span aria-hidden className="text-muted">
+                →
+              </span>
+            )}
+            <span
+              className={
+                chip.dormant
+                  ? "rounded border border-dashed border-muted/60 px-1.5 py-0.5 text-muted"
+                  : chip.key === "fallback"
+                    ? "text-muted italic"
+                    : "font-medium"
+              }
+            >
+              {chip.text}
+            </span>
+          </Fragment>
+        ))}
+      </p>
+    </div>
+  );
+}
+
+function ArrowIcon({ up }: { up: boolean }) {
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 16 16"
+      className="size-4"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d={up ? "M8 13V3M3.5 7.5 8 3l4.5 4.5" : "M8 3v10M3.5 8.5 8 13l4.5-4.5"} />
+    </svg>
+  );
+}
+
+/**
+ * The ordered list of seeding tiebreakers.
+ *
+ * Plainly built: the chosen ones in order, each able to move up, move
+ * down or come off, and a picker for the ones not chosen. Everything is
+ * a real button so it works from the keyboard.
+ */
+export function TiebreakerOrder({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: SeedingTiebreaker[];
+  onChange: (next: SeedingTiebreaker[]) => void;
+}) {
+  const unused = SEEDING_TIEBREAKERS.filter((t) => !value.includes(t));
+  // Reordering with buttons moves the row out from under the pointer, so
+  // the change is also said out loud and the keyboard keeps its place.
+  const [announcement, setAnnouncement] = useState("");
+  const buttons = useRef(new Map<string, HTMLButtonElement | null>());
+  // Held in a ref rather than state: it is a note to the next render,
+  // not something the render reads. Every change unmounts or disables
+  // the button that was pressed, so each one says where focus goes next
+  // rather than letting it fall back to the page.
+  const focusAfter = useRef<
+    | { kind: "move"; key: SeedingTiebreaker; want: "up" | "down" }
+    | { kind: "add"; key: SeedingTiebreaker }
+    | { kind: "remove"; key: SeedingTiebreaker; index: number }
+    | null
+  >(null);
+
+  useEffect(() => {
+    const wanted = focusAfter.current;
+    if (!wanted) return;
+    focusAfter.current = null;
+    const focus = (name: string) => buttons.current.get(name)?.focus();
+
+    if (wanted.kind === "move") {
+      const at = value.indexOf(wanted.key);
+      // The button just pressed can end up disabled at the top or bottom
+      // of the list; step to the one that is still live.
+      const usable =
+        wanted.want === "up" && at === 0
+          ? "down"
+          : wanted.want === "down" && at === value.length - 1
+            ? "up"
+            : wanted.want;
+      focus(`${wanted.key}-${usable}`);
+    } else if (wanted.kind === "add") {
+      // A new tiebreaker lands last, so the next thing anyone does with
+      // it is move it up. Alone in the list, it can only come off.
+      focus(value.length > 1 ? `${wanted.key}-up` : `${wanted.key}-remove`);
+    } else if (value.length > 0) {
+      // The row that slid into its place, or the new last row.
+      const neighbour = value[Math.min(wanted.index, value.length - 1)];
+      focus(`${neighbour}-remove`);
+    } else {
+      // Nothing left in the list: the removed one is back in the picker,
+      // so putting it back is one keypress away.
+      focus(`add-${wanted.key}`);
+    }
+  }, [value]);
+
+  function move(index: number, by: 1 | -1) {
+    const target = index + by;
+    if (target < 0 || target >= value.length) return;
+    const next = [...value];
+    [next[index], next[target]] = [next[target], next[index]];
+    const key = value[index];
+    focusAfter.current = { kind: "move", key, want: by === -1 ? "up" : "down" };
+    onChange(next);
+    setAnnouncement(
+      `${SEEDING_TIEBREAKER_COPY[key].label} moved to ${target + 1} of ${next.length}.`,
+    );
+  }
+
+  function add(key: SeedingTiebreaker) {
+    focusAfter.current = { kind: "add", key };
+    onChange([...value, key]);
+    setAnnouncement(
+      `${SEEDING_TIEBREAKER_COPY[key].label} added as tiebreaker ${value.length + 1} of ${value.length + 1}.`,
+    );
+  }
+
+  function remove(key: SeedingTiebreaker) {
+    const next = value.filter((t) => t !== key);
+    focusAfter.current = { kind: "remove", key, index: value.indexOf(key) };
+    onChange(next);
+    setAnnouncement(
+      next.length === 0
+        ? `${SEEDING_TIEBREAKER_COPY[key].label} removed. No tiebreakers left.`
+        : `${SEEDING_TIEBREAKER_COPY[key].label} removed. ${next.length} tiebreaker${next.length === 1 ? "" : "s"} left.`,
+    );
+  }
+
+  return (
+    <div id={id} className="space-y-3">
+      <p aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
+
+      {value.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border px-3 py-3 text-sm text-muted">
+          Nothing after wins and losses. Teams still level are seeded by a
+          fixed, arbitrary order — add a tiebreaker below to decide it
+          properly.
+        </p>
+      ) : (
+        <ol className="space-y-2">
+          {value.map((key, i) => {
+            const copy = SEEDING_TIEBREAKER_COPY[key];
+            return (
+              <li
+                key={key}
+                className={`flex flex-wrap items-start gap-x-3 gap-y-2 rounded-lg border bg-surface-2/40 p-3 ${
+                  copy.dormant ? "border-dashed border-accent/40" : "border-border"
+                }`}
+              >
+                <span
+                  aria-hidden
+                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xs font-semibold text-accent tabular-nums"
+                >
+                  {i + 1}
+                </span>
+                <div className="min-w-0 flex-1 basis-40">
+                  <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                    <span>
+                      <span className="sr-only">{i + 1}. </span>
+                      {copy.label}
+                    </span>
+                    {copy.dormant && (
+                      <span className="badge-pending">No effect yet</span>
+                    )}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted">{copy.hint}</p>
+                </div>
+                <div className="flex w-full shrink-0 items-center justify-between gap-1.5 sm:w-auto sm:justify-end">
+                  <span className="flex gap-1.5">
+                    <button
+                      type="button"
+                      ref={(el) => {
+                        buttons.current.set(`${key}-up`, el);
+                      }}
+                      className="btn btn-sm min-h-11 w-11 px-0 md:min-h-9 md:w-9"
+                      disabled={i === 0}
+                      aria-label={`Move ${copy.label} up`}
+                      onClick={() => move(i, -1)}
+                    >
+                      <ArrowIcon up />
+                    </button>
+                    <button
+                      type="button"
+                      ref={(el) => {
+                        buttons.current.set(`${key}-down`, el);
+                      }}
+                      className="btn btn-sm min-h-11 w-11 px-0 md:min-h-9 md:w-9"
+                      disabled={i === value.length - 1}
+                      aria-label={`Move ${copy.label} down`}
+                      onClick={() => move(i, 1)}
+                    >
+                      <ArrowIcon up={false} />
+                    </button>
+                  </span>
+                  <button
+                    type="button"
+                    ref={(el) => {
+                      buttons.current.set(`${key}-remove`, el);
+                    }}
+                    className="btn btn-sm min-h-11 text-negative md:min-h-9"
+                    aria-label={`Remove ${copy.label}`}
+                    onClick={() => remove(key)}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
+
+      {unused.length > 0 && (
+        <div role="group" aria-labelledby={`${id}-add-label`}>
+          <p id={`${id}-add-label`} className="label">
+            Add a tiebreaker
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {unused.map((key) => (
+              <button
+                key={key}
+                type="button"
+                ref={(el) => {
+                  buttons.current.set(`add-${key}`, el);
+                }}
+                className="btn btn-sm min-h-11 md:min-h-9"
+                onClick={() => add(key)}
+              >
+                <span aria-hidden>+</span>
+                {SEEDING_TIEBREAKER_COPY[key].label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <SeedingOrderSummary value={value} />
+
+      {value.includes("division_record") && (
+        <p className="note">
+          <span aria-hidden>ℹ</span>
+          <span>
+            <strong className="font-semibold">Division record is saved but idle.</strong>{" "}
+            This league has no divisions yet, so seeding skips straight past
+            it to the next tiebreaker. It starts counting on its own the day
+            divisions are added — nothing to change here.
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
 
 /** What the bracket is called once its mode is known. */
 export function losersTitle(mode: LosersMode | null): string {
@@ -205,6 +552,7 @@ export function ChoiceGroup<T extends string>({
   onChange,
   problems,
   columns = false,
+  note,
 }: {
   id: string;
   name: string;
@@ -215,8 +563,11 @@ export function ChoiceGroup<T extends string>({
   problems: Problem[];
   /** Lay the options side by side where there's room. */
   columns?: boolean;
+  /** One line above the options saying what the question is really about. */
+  note?: string;
 }) {
   const errorId = `${id}-errors`;
+  const noteId = `${id}-note`;
   // Nothing picked yet is not an error to shout about: the "Choose one"
   // badge says it, and the summary by Save lists it.
   const shown = value === null ? [] : problems;
@@ -227,12 +578,21 @@ export function ChoiceGroup<T extends string>({
       id={id}
       className="choice-group scroll-mt-24 space-y-2"
       aria-invalid={invalid || undefined}
-      aria-describedby={invalid ? errorId : undefined}
+      aria-describedby={
+        [note ? noteId : null, invalid ? errorId : null]
+          .filter(Boolean)
+          .join(" ") || undefined
+      }
     >
       <legend className="mb-2 flex w-full items-center justify-between gap-2 text-sm font-semibold">
         {legend}
         {value === null && <span className="badge-todo">Choose one</span>}
       </legend>
+      {note && (
+        <p id={noteId} className="mb-2 text-xs text-muted">
+          {note}
+        </p>
+      )}
       <div className={columns ? "grid gap-2 sm:grid-cols-2" : "grid gap-2"}>
         {options.map((option) => (
           <label key={option.value} className="choice">

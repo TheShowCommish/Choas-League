@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { getLeagueContext } from "@/lib/league";
+import { DEFAULT_SEEDING_TIEBREAKERS } from "@/lib/playoff-bracket";
+import { makesPlayoffs, orderStandings } from "@/lib/standings-order";
 import { createClient } from "@/lib/supabase/server";
 import type { Profile, StandingsRow } from "@/lib/types";
+import { seedingTiebreakCaption } from "../seeding-copy";
 
 export default async function StandingsPage({
   params,
@@ -12,10 +15,14 @@ export default async function StandingsPage({
   const { league, myTeam } = await getLeagueContext(leagueId);
   const supabase = await createClient();
 
-  const [{ data: rows }, { data: profiles }] = await Promise.all([
-    supabase.from("standings").select("*").eq("league_id", leagueId),
-    supabase.from("profiles").select("id, display_name"),
-  ]);
+  const [{ data: rows }, { data: profiles }, { data: order }] =
+    await Promise.all([
+      supabase.from("standings").select("*").eq("league_id", leagueId),
+      supabase.from("profiles").select("id, display_name"),
+      // The league's own seeding order (0041), so the table and its
+      // playoff line agree with the bracket that will be generated.
+      supabase.rpc("league_standings_order", { p_league: leagueId }),
+    ]);
 
   const ownerName = new Map(
     ((profiles ?? []) as Pick<Profile, "id" | "display_name">[]).map((p) => [
@@ -24,13 +31,16 @@ export default async function StandingsPage({
     ]),
   );
 
-  // Standard tiebreak: record first, then total points scored.
-  const standings = ((rows ?? []) as StandingsRow[]).sort(
-    (a, b) =>
-      b.wins - a.wins ||
-      a.losses - b.losses ||
-      Number(b.points_for) - Number(a.points_for),
+  // Record first, then the league's own seeding tiebreakers -- the
+  // same order generate_playoffs seeds from, so the top rows are the
+  // teams that will actually be in the bracket.
+  const seedByTeam = new Map(
+    ((order ?? []) as { team_id: string; seed: number }[]).map((o) => [
+      o.team_id,
+      o.seed,
+    ]),
   );
+  const standings = orderStandings((rows ?? []) as StandingsRow[], seedByTeam);
 
   return (
     <div className="space-y-4">
@@ -39,6 +49,14 @@ export default async function StandingsPage({
         <p className="muted">
           Top {league.playoff_teams} make the playoffs in week{" "}
           {league.playoff_start_week}.
+        </p>
+        {/* Teams level on record are ordered by the league's own seeding
+            rules, so the table says which ones -- otherwise two 8-5
+            teams in "the wrong order" look like a bug. */}
+        <p className="mt-0.5 text-xs text-muted">
+          {seedingTiebreakCaption(
+            league.seeding_tiebreakers ?? DEFAULT_SEEDING_TIEBREAKERS,
+          )}
         </p>
       </div>
 
@@ -62,7 +80,7 @@ export default async function StandingsPage({
             </thead>
             <tbody>
               {standings.map((row, i) => {
-                const inPlayoffs = i < league.playoff_teams;
+                const inPlayoffs = makesPlayoffs(i, league.playoff_teams);
                 return (
                   <tr
                     key={row.team_id}

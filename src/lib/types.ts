@@ -3,6 +3,10 @@
  * generated so the repo does not depend on the Supabase CLI having
  * project access; keep these in step with supabase/migrations.
  */
+import type {
+  PlayoffTiebreak,
+  SeedingTiebreaker,
+} from "@/lib/playoff-bracket";
 
 export interface Profile {
   id: string;
@@ -38,6 +42,14 @@ export interface League {
   losers_mode: "consolation" | "toilet_bowl" | null;
   losers_reseed: "fixed" | "reseed" | null;
   losers_start_week: number | null;
+  /**
+   * Seeding and tiebreaks (0041). Ordered list, applied after wins and
+   * losses; one reseed and one game tiebreak per bracket.
+   */
+  seeding_tiebreakers: SeedingTiebreaker[];
+  playoff_reseed: "fixed" | "reseed";
+  playoff_tiebreak: PlayoffTiebreak;
+  losers_tiebreak: PlayoffTiebreak;
   draft_type: "snake" | "auction";
   waiver_type: "faab" | "priority";
   faab_budget: number;

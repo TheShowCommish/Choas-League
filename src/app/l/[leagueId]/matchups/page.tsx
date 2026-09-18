@@ -26,7 +26,10 @@ export default async function MatchupsPage({
   const inPlayoffs = week >= league.playoff_start_week;
 
   const supabase = await createClient();
-  const [matchups, { data: seedRows }] = await Promise.all([
+  // Who goes through from each decided playoff game. It cannot be read
+  // off the score alone: a tie is settled by the league's own tiebreak,
+  // and a toilet bowl sends the loser on (0041).
+  const [matchups, { data: seedRows }, { data: advancerRows }] = await Promise.all([
     inPlayoffs
       ? supabase
           .from("matchups")
@@ -48,6 +51,12 @@ export default async function MatchupsPage({
           .eq("league_id", leagueId)
           .eq("season", league.season)
       : Promise.resolve({ data: [] }),
+    inPlayoffs
+      ? supabase.rpc("playoff_advancers_for", {
+          p_league: leagueId,
+          p_season: league.season,
+        })
+      : Promise.resolve({ data: [] }),
   ]);
 
   const teamById = new Map(teams.map((t) => [t.id, t]));
@@ -59,6 +68,12 @@ export default async function MatchupsPage({
         .map((s) => [s.team_id, s.seed]),
     );
   const seeds = { winners: seedsIn("winners"), losers: seedsIn("losers") };
+
+  const advancing = new Map(
+    ((advancerRows ?? []) as { matchup_id: string; team_id: string }[]).map(
+      (row) => [row.matchup_id, row.team_id],
+    ),
+  );
 
   return (
     <div className="space-y-4">
@@ -89,6 +104,7 @@ export default async function MatchupsPage({
           losersEnabled={league.losers_bracket_enabled}
           losersStartWeek={league.losers_start_week}
           selectedWeek={week}
+          advancing={advancing}
         />
       ) : (
         <ul className="space-y-3">
