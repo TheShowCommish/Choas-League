@@ -57,6 +57,22 @@ where things stood at the cut.
 4. T-031 league privacy sweep (he asked that nobody see a league they aren't in)
 5. T-040 trade review settings, T-018 desktop shell + the 1024px split, T-021 split-view pilot
 
+## Environment notes
+- The previous session had a dev server running on port 3000 (`preview_start` name `dev`,
+  from `.claude/launch.json`). A new session does not inherit it: start your own if you
+  need one, or expect "port in use" if the old one is still alive.
+- The five agent definitions in `.claude/agents/` (engineer, reviewer, tester, designer,
+  fantasy-expert) load at session start, so they are available immediately. In the previous
+  session they were created mid-run and had to be invoked through a general-purpose agent
+  until it restarted; that workaround is no longer needed.
+- `npm test` has 2 known failures in `scripts/feeds.test.ts` (a live Sleeper feed threshold,
+  queued as T-005). Treat any other failure as real.
+- Windows: the Bash tool is Git Bash. Heredocs containing Python triple quotes have broken
+  mid-command before; write a script into the scratchpad directory and run it instead.
+  `sed -i` works. Python's default stdout encoding here is cp1252, so avoid printing
+  characters like the arrow in board rows.
+- Subagents cannot spawn subagents, which is why the Lead must be the main session.
+
 ## How to work (short version; `team/RULES.md` is the full set)
 - You are the Lead. Subagents: `engineer`, `reviewer`, `tester`, `designer`, `fantasy-expert`.
   One task at a time, one helper at a time.
