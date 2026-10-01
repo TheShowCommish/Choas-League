@@ -5,7 +5,7 @@ Only ONE task may be IN PROGRESS / REVIEW / TEST at a time.
 Priority: P0 (core promise in PRODUCT.md) · P1 (parity with ESPN) · P2 (nice to have)
 
 ## Current
-T-039 - IN PROGRESS (engineer)
+T-039 - IN PROGRESS (engineer fix done; needs designer 'Dropped' marker, then reviewer, then tester). See team/HANDOFF.md
 
 ## Backlog
 | ID | P | Task | Owner | Status | Acceptance criteria |
