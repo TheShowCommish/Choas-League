@@ -278,12 +278,56 @@ body {
       py-2 text-xs text-muted;
   }
 
+  /* The same aside without the accent, for a rule rather than a warning.
+     Inside a team-themed page the accent is the team's colour, and a red
+     franchise would make a plain explanation look like an error. */
+  .note-neutral {
+    @apply flex gap-2 rounded-md border border-border bg-surface-2/60 px-3
+      py-2 text-xs text-muted;
+  }
+
   /* Losing colour: a toilet bowl, where losing is how you advance (so it
      can't be mistaken for an ordinary bracket), or a count of problems. */
   .badge-negative {
     @apply inline-flex items-center gap-1 rounded-full border
       border-negative/40 bg-negative/10 px-2 py-0.5 text-xs font-semibold
       whitespace-nowrap text-negative;
+  }
+
+  /* A player whose lineup place is locked for the week. Neutral, not red
+     or muted: nothing is wrong with him and his row stays full strength;
+     the padlock and the word say he can't move. Stands where his Swap
+     button would be, so it is deliberately not button-shaped. */
+  .badge-locked {
+    @apply inline-flex shrink-0 items-center gap-1 rounded-full border
+      border-muted/50 bg-surface-2 px-2 py-0.5 text-xs font-semibold
+      whitespace-nowrap text-foreground;
+  }
+
+  /* A player who was dropped after his game had kicked off: he is off
+     the roster, but he keeps his place in that week's lineup and still
+     scores for the team. Dashed and in the negative colour so it reads
+     as "gone" and cannot be mistaken for the solid neutral padlock chip
+     it sits beside -- and the word "Dropped" carries it on its own for
+     anyone who sees neither the colour nor the glyph. */
+  .badge-dropped {
+    @apply inline-flex shrink-0 items-center gap-1 rounded-full border
+      border-dashed border-negative/60 bg-negative/10 px-2 py-0.5 text-xs
+      font-semibold whitespace-nowrap text-negative;
+  }
+
+  /* A commissioner-only tool on a page every manager sees. Dashed and
+     tinted so it reads as outside the page's normal controls; always
+     paired with a .badge-admin so the difference is in words too. */
+  .admin-panel {
+    @apply space-y-3 rounded-lg border border-dashed border-accent/60
+      bg-accent/5 p-4;
+  }
+
+  .badge-admin {
+    @apply inline-flex items-center gap-1 rounded-full border
+      border-accent/40 bg-accent/10 px-2 py-0.5 text-xs font-semibold
+      tracking-wide whitespace-nowrap text-accent uppercase;
   }
 
   /* The phone bottom nav clears the home indicator and landscape notch. */

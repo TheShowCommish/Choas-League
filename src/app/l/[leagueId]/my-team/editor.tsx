@@ -1,10 +1,28 @@
 "use client";
 
-import { useActionState, useMemo, useState, useTransition } from "react";
+import {
+  Fragment,
+  useActionState,
+  useMemo,
+  useState,
+  useTransition,
+} from "react";
 import type { RosterEntry } from "@/lib/roster";
 import type { RosterSlot } from "@/lib/types";
 import { expandSlots, positionLabel, slotAccepts } from "@/lib/roster-slots";
 import { autoFill, type LineupSpot } from "@/lib/lineup";
+import { useWideScreen } from "@/lib/use-wide-screen";
+import {
+  DroppedBadge,
+  DroppedNote,
+  GameStatusText,
+  LockBadge,
+  LockIcon,
+  gameStatus,
+  lockReason,
+  lockRuleText,
+  type LockMode,
+} from "../lineup-lock";
 import { saveLineup, dropPlayerById, type LineupResult } from "./actions";
 
 const empty: LineupResult = {};
@@ -25,6 +43,12 @@ const empty: LineupResult = {};
  * is not a state anybody discovers on a Sunday morning. The only players
  * left over are the ones a full roster genuinely has no room for, and
  * they are named as exactly that.
+ *
+ * Two views over the one board (Q9): a table on desktop, with the game
+ * and the points in their own columns and Swap and Drop side by side;
+ * a list on phones, one 44px action per row and Drop tucked into the
+ * swap panel. A locked player keeps a full-strength row in both -- his
+ * controls give way to a padlock chip, not a greyed-out button.
  */
 export function LineupEditor({
   leagueId,
@@ -33,6 +57,8 @@ export function LineupEditor({
   week,
   slots,
   roster,
+  lockMode,
+  timeZone,
 }: {
   leagueId: string;
   teamId: string;
@@ -40,8 +66,12 @@ export function LineupEditor({
   week: number;
   slots: RosterSlot[];
   roster: RosterEntry[];
+  lockMode: LockMode;
+  /** The league's timezone, for kickoff times. */
+  timeZone: string;
 }) {
   const [state, action, pending] = useActionState(saveLineup, empty);
+  const wide = useWideScreen();
 
   const byPlayer = useMemo(
     () => new Map(roster.map((r) => [r.playerId, r])),
@@ -140,6 +170,38 @@ export function LineupEditor({
 
   const emptyStarters = starterSpots.filter((s) => !placed[s.key]).length;
 
+  // "Fill the gaps" only when it would fill something: once the only
+  // players who could take an empty starting spot are locked, the
+  // button would do nothing, which reads as broken.
+  const canFill =
+    emptyStarters > 0 &&
+    (() => {
+      const filled = autoFill(placed, spots, roster);
+      return starterSpots.some((s) => !placed[s.key] && filled[s.key]);
+    })();
+
+  const lockedCount = roster.filter((entry) => entry.locked).length;
+  const allLocked = roster.length > 0 && lockedCount === roster.length;
+
+  // Players the board still has to draw although they are off the
+  // roster: dropped after kickoff, locked into this week's lineup.
+  const droppedCount = roster.filter((entry) => !entry.onRoster).length;
+
+  const listProps = {
+    placed,
+    byPlayer,
+    openSpot,
+    setOpenSpot,
+    roster,
+    spotOf,
+    put,
+    leagueId,
+    teamId,
+    lockMode,
+    timeZone,
+    wide,
+  };
+
   return (
     <form action={action} className="space-y-4">
       <input type="hidden" name="league_id" value={leagueId} />
@@ -161,22 +223,43 @@ export function LineupEditor({
         />
       ))}
 
-      <div className="card flex flex-wrap items-center gap-3">
+      <div className="card flex flex-wrap items-center gap-2 md:gap-3">
         <span className="pill">
           Starters {starterSpots.length - emptyStarters}/{starterSpots.length}
         </span>
         {emptyStarters > 0 && (
-          <>
-            <span className="pill border-negative text-negative">
-              {emptyStarters} empty
-            </span>
-            <button type="button" className="btn btn-sm" onClick={fillGaps}>
-              Fill the gaps
-            </button>
-          </>
+          <span className="pill border-negative text-negative">
+            {emptyStarters} empty
+          </span>
+        )}
+        {lockedCount > 0 && (
+          <span className="badge-locked">
+            <LockIcon />
+            {allLocked ? "Lineup locked" : `${lockedCount} locked`}
+          </span>
         )}
         <span className="pill ml-auto">{projectedTotal.toFixed(1)} pts</span>
+        {canFill && (
+          <button
+            type="button"
+            className={`btn ${wide ? "btn-sm" : "w-full"}`}
+            onClick={fillGaps}
+          >
+            Fill the gaps
+          </button>
+        )}
       </div>
+
+      <LockRule
+        mode={lockMode}
+        lockedCount={lockedCount}
+        allLocked={allLocked}
+        week={week}
+        wide={wide}
+      />
+
+      {/* Once, under the lock rule it follows from -- not on every row. */}
+      <DroppedNote count={droppedCount} mine />
 
       {autoFilled && (
         <p className="ok-box">
@@ -185,32 +268,12 @@ export function LineupEditor({
         </p>
       )}
 
-      <SpotList
-        title="Starters"
-        spots={spots.filter((s) => s.isStarter)}
-        placed={placed}
-        byPlayer={byPlayer}
-        openSpot={openSpot}
-        setOpenSpot={setOpenSpot}
-        roster={roster}
-        spotOf={spotOf}
-        put={put}
-        leagueId={leagueId}
-        teamId={teamId}
-      />
+      <SpotList title="Starters" spots={starterSpots} {...listProps} />
 
       <SpotList
         title="Bench and reserve"
         spots={spots.filter((s) => !s.isStarter)}
-        placed={placed}
-        byPlayer={byPlayer}
-        openSpot={openSpot}
-        setOpenSpot={setOpenSpot}
-        roster={roster}
-        spotOf={spotOf}
-        put={put}
-        leagueId={leagueId}
-        teamId={teamId}
+        {...listProps}
       />
 
       {unassigned.length > 0 && (
@@ -224,14 +287,18 @@ export function LineupEditor({
           <ul className="card-tight divide-y divide-border/60">
             {unassigned.map((entry) => (
               <li key={entry.playerId} className="flex items-center gap-3 p-3">
-                <PlayerLine entry={entry} />
-                <DropButton
-                  leagueId={leagueId}
-                  teamId={teamId}
-                  playerId={entry.playerId}
-                  playerName={entry.player.full_name}
-                  disabled={entry.locked}
-                />
+                <PlayerLine entry={entry} timeZone={timeZone} />
+                {entry.locked ? (
+                  <LockBadge mode={lockMode} />
+                ) : (
+                  <DropButton
+                    leagueId={leagueId}
+                    teamId={teamId}
+                    playerId={entry.playerId}
+                    playerName={entry.player.full_name}
+                    className={wide ? "btn-sm" : ""}
+                  />
+                )}
               </li>
             ))}
           </ul>
@@ -241,28 +308,76 @@ export function LineupEditor({
       {state.error && <p className="error-box">{state.error}</p>}
       {state.ok && <p className="ok-box">{state.ok}</p>}
 
-      <button className="btn btn-primary w-full md:w-auto" disabled={pending}>
-        {pending ? "Saving..." : `Save week ${week} lineup`}
-      </button>
+      {/* Nothing left to save once everyone is locked, and a faded
+          Save button reads as broken; the lock note already says why. */}
+      {!allLocked && (
+        <button className="btn btn-primary w-full md:w-auto" disabled={pending}>
+          {pending ? "Saving..." : `Save week ${week} lineup`}
+        </button>
+      )}
     </form>
   );
 }
 
-function SpotList({
-  title,
-  spots,
-  placed,
-  byPlayer,
-  openSpot,
-  setOpenSpot,
-  roster,
-  spotOf,
-  put,
-  leagueId,
-  teamId,
+/**
+ * The league's lock rule, next to the lineup it applies to.
+ *
+ * Desktop always shows it: that is where a lineup is planned, and the
+ * rule is part of the plan. A phone only needs it once it bites, so it
+ * appears there when somebody is locked, cut to one line.
+ */
+function LockRule({
+  mode,
+  lockedCount,
+  allLocked,
+  week,
+  wide,
 }: {
-  title: string;
-  spots: LineupSpot[];
+  mode: LockMode;
+  lockedCount: number;
+  allLocked: boolean;
+  week: number;
+  wide: boolean;
+}) {
+  if (!wide && lockedCount === 0) return null;
+
+  const now =
+    lockedCount === 0
+      ? null
+      : allLocked
+        ? `Week ${week} is locked.`
+        : `${lockedCount} ${lockedCount === 1 ? "player is" : "players are"} locked now.`;
+
+  if (!wide) {
+    return (
+      <p className="note-neutral">
+        <LockIcon className="mt-0.5 size-3.5" />
+        <span>
+          {mode === "weekly_kickoff"
+            ? `Lineup locked: week ${week}'s first game has kicked off.`
+            : `${lockedCount} locked: ${lockedCount === 1 ? "his game has" : "their games have"} kicked off. Everyone else can still move.`}
+        </span>
+      </p>
+    );
+  }
+
+  return (
+    <p className="note-neutral">
+      <LockIcon className="mt-0.5 size-3.5" />
+      <span>
+        <span className="font-semibold text-foreground">
+          {mode === "weekly_kickoff"
+            ? "Lineup lock: first kickoff of the week."
+            : "Lineup lock: each player's kickoff."}
+        </span>{" "}
+        {lockRuleText(mode)}
+        {now && <span className="text-foreground"> {now}</span>}
+      </span>
+    </p>
+  );
+}
+
+interface ListProps {
   placed: Record<string, string | null>;
   byPlayer: Map<string, RosterEntry>;
   openSpot: string | null;
@@ -272,133 +387,394 @@ function SpotList({
   put: (spotKey: string, playerId: string | null) => void;
   leagueId: string;
   teamId: string;
-}) {
+  lockMode: LockMode;
+  timeZone: string;
+  wide: boolean;
+}
+
+/** Everything one spot's row needs, worked out once for both views. */
+function spotRow(spot: LineupSpot, props: ListProps) {
+  const { placed, byPlayer, openSpot, roster } = props;
+  const playerId = placed[spot.key];
+  const entry = playerId ? byPlayer.get(playerId) : undefined;
+  const locked = entry?.locked ?? false;
+  const dropped = entry ? !entry.onRoster : false;
+  const isOpen = openSpot === spot.key;
+
+  const eligible = (r: RosterEntry) =>
+    r.playerId !== playerId &&
+    slotAccepts({ eligible_positions: spot.eligiblePositions }, r.player.position);
+
+  // Anyone eligible for this spot who is not locked in place.
+  const candidates = roster.filter((r) => !r.locked && eligible(r));
+  const lockedOut = roster.filter((r) => r.locked && eligible(r)).length;
+
+  return { entry, locked, dropped, isOpen, candidates, lockedOut };
+}
+
+function SpotList({
+  title,
+  spots,
+  ...props
+}: ListProps & { title: string; spots: LineupSpot[] }) {
   if (spots.length === 0) return null;
 
   return (
     <section>
       <h2 className="h2 mb-2">{title}</h2>
-      <ul className="card-tight divide-y divide-border/60">
-        {spots.map((spot) => {
-          const playerId = placed[spot.key];
-          const entry = playerId ? byPlayer.get(playerId) : undefined;
-          const locked = entry?.locked ?? false;
-          const isOpen = openSpot === spot.key;
-
-          // Anyone eligible for this spot who is not locked in place.
-          const candidates = roster.filter(
-            (r) =>
-              r.playerId !== playerId &&
-              !r.locked &&
-              slotAccepts(
-                { eligible_positions: spot.eligiblePositions },
-                r.player.position,
-              ),
-          );
-
-          return (
-            <li key={spot.key} className="p-3">
-              <div className="flex items-center gap-3">
-                <span className="w-14 shrink-0 text-xs font-semibold uppercase tracking-wide text-muted">
-                  {spot.label}
-                </span>
-
-                {entry ? (
-                  <PlayerLine entry={entry} />
-                ) : (
-                  <span className="muted flex-1 text-sm italic">Empty</span>
-                )}
-
-                <button
-                  type="button"
-                  className="btn btn-sm shrink-0"
-                  disabled={locked}
-                  title={
-                    locked ? "This game has kicked off" : `Change ${spot.label}`
-                  }
-                  onClick={() => setOpenSpot(isOpen ? null : spot.key)}
-                >
-                  {locked ? "Locked" : entry ? "Swap" : "Fill"}
-                </button>
-
-                {entry && (
-                  <DropButton
-                    leagueId={leagueId}
-                    teamId={teamId}
-                    playerId={entry.playerId}
-                    playerName={entry.player.full_name}
-                    disabled={locked}
-                  />
-                )}
-              </div>
-
-              {isOpen && (
-                <div className="mt-3 rounded-lg border border-border bg-surface p-2">
-                  {entry && (
-                    <button
-                      type="button"
-                      className="btn btn-sm mb-2 w-full"
-                      onClick={() => put(spot.key, null)}
-                    >
-                      Leave {spot.label} empty
-                    </button>
-                  )}
-
-                  {candidates.length === 0 ? (
-                    <p className="muted p-2 text-sm">
-                      Nobody else on your roster can play here.
-                    </p>
-                  ) : (
-                    <ul className="max-h-72 divide-y divide-border/60 overflow-y-auto">
-                      {candidates.map((candidate) => {
-                        const from = spotOf(candidate.playerId);
-                        return (
-                          <li key={candidate.playerId}>
-                            <button
-                              type="button"
-                              className="flex w-full items-center gap-3 p-2 text-left hover:bg-bg"
-                              onClick={() => put(spot.key, candidate.playerId)}
-                            >
-                              <PlayerLine entry={candidate} />
-                              <span className="muted shrink-0 text-xs">
-                                {from ? "swap" : "add"}
-                              </span>
-                            </button>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </li>
-          );
-        })}
-      </ul>
+      {props.wide ? (
+        <SpotTable spots={spots} {...props} />
+      ) : (
+        <SpotCards spots={spots} {...props} />
+      )}
     </section>
   );
 }
 
-function PlayerLine({ entry }: { entry: RosterEntry }) {
+/** Desktop: a table, one column per thing worth comparing. */
+function SpotTable({ spots, ...props }: ListProps & { spots: LineupSpot[] }) {
+  const { setOpenSpot, lockMode, timeZone, leagueId, teamId } = props;
+
+  return (
+    <div className="card-tight">
+      {/* Fixed widths so the starters and bench tables line up
+          column for column. */}
+      <table className="table table-fixed">
+        <thead>
+          <tr>
+            <th className="w-20 pl-3">Slot</th>
+            <th>Player</th>
+            <th className="w-36">Game</th>
+            <th className="w-20 text-right">Pts</th>
+            <th className="w-44 pr-3">
+              <span className="sr-only">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {spots.map((spot) => {
+            const { entry, locked, dropped, isOpen, candidates, lockedOut } =
+              spotRow(spot, props);
+            const status = entry
+              ? gameStatus(entry.game, entry.player.team_abbr, timeZone)
+              : null;
+
+            return (
+              <Fragment key={spot.key}>
+                <tr className={locked ? "bg-surface-2/50" : undefined}>
+                  <td className="pl-3 text-xs font-semibold tracking-wide text-muted uppercase">
+                    {spot.label}
+                  </td>
+                  <td>
+                    {entry ? (
+                      <>
+                        <span className="block truncate font-medium">
+                          {entry.player.full_name}
+                        </span>
+                        <span className="muted block truncate text-xs">
+                          {positionLabel(entry.player.position)} &middot;{" "}
+                          {entry.player.team_abbr ?? "FA"}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="muted italic">Empty</span>
+                    )}
+                  </td>
+                  <td className="text-xs whitespace-nowrap">
+                    {entry &&
+                      (entry.game === null ? (
+                        <span className="text-negative">BYE</span>
+                      ) : (
+                        <>
+                          <span className="block">{entry.opponent}</span>
+                          <span className="block text-muted tabular-nums">
+                            <GameStatusText status={status} />
+                          </span>
+                        </>
+                      ))}
+                  </td>
+                  <td className="text-right tabular-nums">
+                    {entry && (
+                      <>
+                        {entry.points.toFixed(1)}
+                        {!entry.isFinal && entry.points !== 0 && " *"}
+                      </>
+                    )}
+                  </td>
+                  <td className="pr-3">
+                    <div className="flex flex-wrap items-center justify-end gap-1.5 whitespace-nowrap">
+                      {dropped && <DroppedBadge />}
+                      {locked ? (
+                        <span title={`Locked: ${lockReason(lockMode)}`}>
+                          <LockBadge mode={lockMode} />
+                        </span>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            aria-expanded={isOpen}
+                            onClick={() => setOpenSpot(isOpen ? null : spot.key)}
+                          >
+                            {entry ? "Swap" : "Fill"}
+                            <span className="sr-only"> {spot.label}</span>
+                          </button>
+                          {entry && (
+                            <DropButton
+                              leagueId={leagueId}
+                              teamId={teamId}
+                              playerId={entry.playerId}
+                              playerName={entry.player.full_name}
+                              className="btn-sm"
+                            />
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+                {isOpen && (
+                  <tr>
+                    <td colSpan={5} className="bg-surface-2/40 p-3">
+                      <SwapPanel
+                        spot={spot}
+                        entry={entry}
+                        candidates={candidates}
+                        lockedOut={lockedOut}
+                        {...props}
+                      />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * Phone: one row per spot, one thumb-sized action per row. A locked
+ * player's row keeps its name and score at full strength; the padlock
+ * takes the Swap button's place and the game status sits under his name.
+ */
+function SpotCards({ spots, ...props }: ListProps & { spots: LineupSpot[] }) {
+  const { setOpenSpot, lockMode, timeZone } = props;
+
+  return (
+    <ul className="card-tight divide-y divide-border/60 overflow-hidden">
+      {spots.map((spot) => {
+        const { entry, locked, isOpen, candidates, lockedOut } = spotRow(
+          spot,
+          props,
+        );
+
+        return (
+          <li
+            key={spot.key}
+            className={`px-3 py-2.5 ${locked ? "bg-surface-2/50" : ""}`}
+          >
+            <div className="flex min-h-11 items-center gap-3">
+              <span className="w-11 shrink-0 text-xs font-semibold tracking-wide break-words text-muted uppercase">
+                {spot.label}
+              </span>
+
+              {entry ? (
+                <PlayerLine entry={entry} timeZone={timeZone} stacked />
+              ) : (
+                <span className="muted flex-1 text-sm italic">Empty</span>
+              )}
+
+              {locked ? (
+                <LockBadge mode={lockMode} />
+              ) : (
+                <button
+                  type="button"
+                  className="btn min-w-18 shrink-0 px-3"
+                  aria-expanded={isOpen}
+                  onClick={() => setOpenSpot(isOpen ? null : spot.key)}
+                >
+                  {entry ? "Swap" : "Fill"}
+                  <span className="sr-only"> {spot.label}</span>
+                </button>
+              )}
+            </div>
+
+            {isOpen && (
+              <div className="mt-2.5 rounded-lg border border-border bg-surface-2/60 p-2">
+                <SwapPanel
+                  spot={spot}
+                  entry={entry}
+                  candidates={candidates}
+                  lockedOut={lockedOut}
+                  {...props}
+                />
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Who can go into a spot, plus the spot's other moves. */
+function SwapPanel({
+  spot,
+  entry,
+  candidates,
+  lockedOut,
+  spotOf,
+  put,
+  leagueId,
+  teamId,
+  timeZone,
+  wide,
+}: ListProps & {
+  spot: LineupSpot;
+  entry: RosterEntry | undefined;
+  candidates: RosterEntry[];
+  /** Eligible players left out of the list because they are locked. */
+  lockedOut: number;
+}) {
+  return (
+    <div className="space-y-2">
+      {entry && (
+        <button
+          type="button"
+          className={`btn w-full ${wide ? "btn-sm" : ""}`}
+          onClick={() => put(spot.key, null)}
+        >
+          Leave {spot.label} empty
+        </button>
+      )}
+
+      {candidates.length === 0 ? (
+        <p className="muted flex items-start gap-1.5 p-2 text-sm">
+          {lockedOut > 0 ? (
+            <>
+              <LockIcon className="mt-0.5 size-3.5" />
+              Everyone else who can play {spot.label} is locked.
+            </>
+          ) : (
+            "Nobody else on your roster can play here."
+          )}
+        </p>
+      ) : (
+        <ul className="max-h-72 divide-y divide-border/60 overflow-y-auto rounded-md border border-border bg-surface">
+          {candidates.map((candidate) => {
+            const from = spotOf(candidate.playerId);
+            return (
+              <li key={candidate.playerId}>
+                <button
+                  type="button"
+                  className="flex min-h-11 w-full items-center gap-3 px-3 py-2 text-left hover:bg-surface-2 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+                  onClick={() => put(spot.key, candidate.playerId)}
+                >
+                  <PlayerLine entry={candidate} timeZone={timeZone} />
+                  <span className="muted shrink-0 text-xs">
+                    {from ? "swap" : "add"}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {candidates.length > 0 && lockedOut > 0 && (
+        <p className="muted flex items-center gap-1.5 px-1 text-xs">
+          <LockIcon />
+          {lockedOut} locked {lockedOut === 1 ? "player isn't" : "players aren't"}{" "}
+          listed.
+        </p>
+      )}
+
+      {/* On a phone Drop lives here rather than in the row, so each row
+          has one action and it can be a full-size target. */}
+      {!wide && entry && (
+        <DropButton
+          leagueId={leagueId}
+          teamId={teamId}
+          playerId={entry.playerId}
+          playerName={entry.player.full_name}
+          className="w-full"
+          quiet
+          label={`Drop ${entry.player.full_name}`}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Name over a line of detail. `stacked` (the phone row) splits the
+ * detail in two -- who he plays, then how it is going -- so neither is
+ * truncated away on a narrow screen.
+ */
+function PlayerLine({
+  entry,
+  timeZone,
+  stacked = false,
+}: {
+  entry: RosterEntry;
+  timeZone: string;
+  stacked?: boolean;
+}) {
   const onBye = entry.game === null;
+  const status = gameStatus(entry.game, entry.player.team_abbr, timeZone);
+
+  const who = (
+    <>
+      {positionLabel(entry.player.position)} &middot;{" "}
+      {entry.player.team_abbr ?? "FA"}
+      {onBye ? (
+        <span className="text-negative"> &middot; BYE</span>
+      ) : (
+        <> {entry.opponent}</>
+      )}
+    </>
+  );
+
+  const points = (
+    <>
+      {entry.points.toFixed(1)} pts
+      {!entry.isFinal && entry.points !== 0 && " *"}
+    </>
+  );
 
   return (
     <span className="min-w-0 flex-1">
       <span className="block truncate text-sm font-medium">
         {entry.player.full_name}
       </span>
-      <span className="muted block truncate text-xs">
-        {positionLabel(entry.player.position)} &middot;{" "}
-        {entry.player.team_abbr ?? "FA"}
-        {onBye ? (
-          <span className="text-negative"> &middot; BYE</span>
-        ) : (
-          <> &middot; {entry.opponent}</>
-        )}
-        {" · "}
-        {entry.points.toFixed(1)} pts
-        {!entry.isFinal && entry.points !== 0 && " *"}
-      </span>
+      {stacked ? (
+        <>
+          <span className="muted block truncate text-xs">{who}</span>
+          <span className="muted block truncate text-xs tabular-nums">
+            {status && (
+              <>
+                <GameStatusText status={status} /> &middot;{" "}
+              </>
+            )}
+            {points}
+          </span>
+        </>
+      ) : (
+        <span className="muted block truncate text-xs tabular-nums">
+          {who}
+          {status && (
+            <>
+              {" · "}
+              <GameStatusText status={status} />
+            </>
+          )}
+          {" · "}
+          {points}
+        </span>
+      )}
     </span>
   );
 }
@@ -408,28 +784,38 @@ function PlayerLine({ entry }: { entry: RosterEntry }) {
  * buttons sit inside the lineup form, and a form per row is not an
  * option (nested forms are invalid HTML) while a shared set of hidden
  * inputs would collide on field names.
+ *
+ * Never drawn for a locked player: a disabled red button reads as an
+ * error, and the padlock already says why nothing can be done.
  */
 function DropButton({
   leagueId,
   teamId,
   playerId,
   playerName,
-  disabled,
+  className = "",
+  label = "Drop",
+  quiet = false,
 }: {
   leagueId: string;
   teamId: string;
   playerId: string;
   playerName: string;
-  disabled: boolean;
+  className?: string;
+  label?: string;
+  /** Outlined rather than filled, for a Drop that is not the main action. */
+  quiet?: boolean;
 }) {
   const [pending, startTransition] = useTransition();
 
   return (
     <button
       type="button"
-      className="btn btn-sm btn-danger shrink-0"
-      disabled={disabled || pending}
-      title={`Drop ${playerName}`}
+      className={`btn shrink-0 ${
+        quiet ? "border-negative/50 text-negative" : "btn-danger"
+      } ${className}`}
+      disabled={pending}
+      aria-label={label === "Drop" ? `Drop ${playerName}` : undefined}
       onClick={() => {
         if (!confirm(`Drop ${playerName}? He goes on waivers.`)) return;
         startTransition(async () => {
@@ -438,7 +824,7 @@ function DropButton({
         });
       }}
     >
-      Drop
+      {label}
     </button>
   );
 }

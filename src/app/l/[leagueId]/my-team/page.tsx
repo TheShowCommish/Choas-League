@@ -60,8 +60,13 @@ export default async function MyTeamPage({
       supabase.from("standings").select("*").eq("league_id", leagueId),
     ]);
 
+  // A dropped player locked into this week's lineup is drawn on the
+  // board but is not held any more, so he counts against neither the
+  // position limits nor the roster size.
+  const held = roster.filter((entry) => entry.onRoster);
+
   const heldByPosition = new Map<string, number>();
-  for (const entry of roster) {
+  for (const entry of held) {
     const position = entry.player.position;
     if (!position) continue;
     heldByPosition.set(position, (heldByPosition.get(position) ?? 0) + 1);
@@ -129,7 +134,7 @@ export default async function MyTeamPage({
             </div>
             <p className="muted">
               ${myTeam.faab_remaining} FAAB left &middot; waiver priority{" "}
-              {myTeam.waiver_priority} &middot; {roster.length}/{capacity}{" "}
+              {myTeam.waiver_priority} &middot; {held.length}/{capacity}{" "}
               players
             </p>
           </div>
@@ -189,6 +194,8 @@ export default async function MyTeamPage({
           week={week}
           slots={rosterSlots}
           roster={roster}
+          lockMode={league.lineup_lock_mode}
+          timeZone={league.timezone}
         />
       )}
     </TeamTheme>

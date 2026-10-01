@@ -58,3 +58,7 @@ The executive can reverse any of them. Mark reviewed entries with ✔ in CHECKIN
 | 2026-09-18 | T-039 | Mobile My Team: one action per row; Drop moved into the swap panel. Lock chip is neutral grey, not red | designer | yes |
 | 2026-09-18 | T-039 | Allowed a 3rd review round instead of escalating: the remaining must-fix (guard on waivers_processed_at) is narrow, technical and has an obvious answer, so not an executive decision | Lead | yes |
 | 2026-10-01 | demo | Tester re-seeded "Fake Test League" while verifying the seed script; demo league id is now 3ca78f4e-339f-463c-9e43-6acbfae610fd (join code 33A2768D) | Lead | n/a |
+| 2026-10-01 | feedback | Executive's 5 session notes triaged as T-062 (Players perf, P0), T-063 (matchup player stat-line popup, P0, extends T-024), T-064 (matchup points prominence, P0), T-065 (Players waiver FAB, P1), T-066 (design overhaul, P0) | Lead | yes |
+| 2026-10-01 | T-066 | Design direction: "unique but very familiar for an ESPN user" — distinct visual identity on an ESPN-familiar layout/IA; fantasy-expert benchmarks vs ESPN, executive approves direction before site-wide build | executive | yes |
+| 2026-10-01 | queue | After T-039 ships, work the 5 feedback items (T-062..T-066) ahead of the old handoff queue (T-060/T-056/T-031...) | executive | yes |
+| 2026-10-01 | T-039 | Optional dropped-but-locked "Dropped" pill polish deferred into the design workstream (T-064/T-066), not restarted as a standalone step | Lead | yes |

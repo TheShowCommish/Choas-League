@@ -59,6 +59,11 @@ export interface League {
   waiver_period_hours: number;
   faab_tie_breaker: "waiver_priority" | "earliest_bid" | "random";
   lineup_lock_mode: "per_player" | "weekly_kickoff";
+  /**
+   * An unrostered player whose game has kicked off goes to waivers until
+   * the next scheduled waiver run, rather than staying a free agent (0042).
+   */
+  locked_players_to_waivers: boolean;
   timezone: string;
 }
 

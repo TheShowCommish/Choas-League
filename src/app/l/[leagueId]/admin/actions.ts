@@ -123,6 +123,8 @@ export async function saveLeagueSettings(
         waiver_process_time: String(formData.get("waiver_process_time")),
         faab_tie_breaker: String(formData.get("faab_tie_breaker")),
         lineup_lock_mode: String(formData.get("lineup_lock_mode")),
+        locked_players_to_waivers:
+          formData.get("locked_players_to_waivers") === "on",
         timezone: String(formData.get("timezone")),
       })
       .eq("id", leagueId);

@@ -214,6 +214,23 @@ export function SettingsPanel({ league }: { league: League }) {
             </select>
           </Field>
         </div>
+
+        <label className="choice">
+          <input
+            type="checkbox"
+            name="locked_players_to_waivers"
+            defaultChecked={league.locked_players_to_waivers}
+          />
+          <span className="min-w-0">
+            <span className="block font-medium">
+              Send players to waivers when their game starts
+            </span>
+            <span className="block text-xs text-muted">
+              Players whose game has started go to waivers until the next
+              waiver run instead of being free agents.
+            </span>
+          </span>
+        </label>
       </section>
 
       {state.error && <p className="error-box">{state.error}</p>}

@@ -96,7 +96,8 @@ export default async function PlayersPage({
     ? await getTeamRoster(leagueId, myTeam.id, league.season, league.current_week)
     : [];
 
-  const dropOptions = myRoster.map((r) => ({
+  // A dropped player still locked into the week cannot be dropped again.
+  const dropOptions = myRoster.filter((r) => r.onRoster).map((r) => ({
     playerId: r.playerId,
     label: `${r.player.full_name} (${positionLabel(r.player.position)})`,
   }));

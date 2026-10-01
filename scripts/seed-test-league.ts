@@ -530,15 +530,27 @@ async function setLineups(
     }
   }
 
-  await client.query(
-    `insert into public.lineup_entries
-       (league_id, team_id, season, week, player_id, slot_key)
-     select $1, t.team_id::uuid, $2, t.week, t.player_id, t.slot_key
-     from unnest($3::uuid[], $4::int[], $5::text[], $6::text[])
-       as t(team_id, week, player_id, slot_key)
-     on conflict (team_id, season, week, player_id) do nothing`,
-    [leagueId, SEASON, teamColumn, weekColumn, playerColumn, slotColumn],
-  );
+  // Every 2025 game has kicked off, so the lineup lock (0042) would
+  // refuse these as the commissioner. They are history being written in
+  // bulk, not a manager's lineup, so they go in as the system: the JWT
+  // claims are cleared for this one transaction only.
+  await client.query("begin");
+  try {
+    await client.query("select set_config('request.jwt.claims', '', true)");
+    await client.query(
+      `insert into public.lineup_entries
+         (league_id, team_id, season, week, player_id, slot_key)
+       select $1, t.team_id::uuid, $2, t.week, t.player_id, t.slot_key
+       from unnest($3::uuid[], $4::int[], $5::text[], $6::text[])
+         as t(team_id, week, player_id, slot_key)
+       on conflict (team_id, season, week, player_id) do nothing`,
+      [leagueId, SEASON, teamColumn, weekColumn, playerColumn, slotColumn],
+    );
+    await client.query("commit");
+  } catch (err) {
+    await client.query("rollback");
+    throw err;
+  }
 }
 
 /**

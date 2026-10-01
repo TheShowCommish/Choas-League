@@ -80,12 +80,23 @@ async function start(
   playerId: string,
   week: number,
 ) {
-  await db.q(
-    `insert into public.lineup_entries
-       (league_id, team_id, season, week, player_id, slot_key)
-     values ($1, $2, $3, $4, $5, 'WR')`,
-    [leagueId, teamId, SEASON, week, playerId],
+  // A lineup set before kickoff and recorded after it, so it is written
+  // as the system: the lineup lock (0042) rightly refuses a manager
+  // starting somebody whose game has already kicked off.
+  const { uid } = await db.one<{ uid: string }>(
+    "select coalesce(current_setting('test.uid', true), '') as uid",
   );
+  await db.actAs(null);
+  try {
+    await db.q(
+      `insert into public.lineup_entries
+         (league_id, team_id, season, week, player_id, slot_key)
+       values ($1, $2, $3, $4, $5, 'WR')`,
+      [leagueId, teamId, SEASON, week, playerId],
+    );
+  } finally {
+    await db.actAs(uid || null);
+  }
 }
 
 async function matchup(

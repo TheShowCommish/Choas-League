@@ -5,7 +5,18 @@ Only ONE task may be IN PROGRESS / REVIEW / TEST at a time.
 Priority: P0 (core promise in PRODUCT.md) · P1 (parity with ESPN) · P2 (nice to have)
 
 ## Current
-T-039 - IN PROGRESS (engineer fix done; needs designer 'Dropped' marker, then reviewer, then tester). See team/HANDOFF.md
+T-039 - TEST. Reviewer APPROVED (tsc/lint/db:verify clean, 503/505 with 2 known T-005 failures, new suites 95/95). Now with tester; then commit -> push -> db:push 0042. Optional 'Dropped' pill polish deferred into the design workstream (T-064/T-066), NOT restarted.
+
+## Executive direction — 2026-10-01
+- T-066 design: "unique but very familiar for an ESPN user." -> distinct identity on an ESPN-familiar information architecture/layout. fantasy-expert benchmarks vs ESPN first.
+- After T-039 ships, work the 5 feedback items (T-062..T-066) ahead of the old queue.
+
+## Executive feedback — 2026-10-01 (new, triaged below as T-062..T-066)
+1. Players tab is very slow .............. T-062 (P0)
+2. Matchup: click a player -> itemized weekly points report ... T-063 (P0, extends T-024)
+3. Matchup: player points not prominent enough ... T-064 (P0)
+4. Players tab: FAB for waivers ........... T-065 (P1, relates to T-023)
+5. Design reads as a cheap AI artifact; needs a real identity ... T-066 (P0, big)
 
 ## Backlog
 | ID | P | Task | Owner | Status | Acceptance criteria |
@@ -58,6 +69,11 @@ T-039 - IN PROGRESS (engineer fix done; needs designer 'Dropped' marker, then re
 | T-059 | P2 | apply_kickoff_locks stamps locked_at on every unstamped historical row in every league on its first run, including completed past seasons (the status<>'complete' guard only covers the waiver-hold half). One-time, no correctness impact. 0042:805-809. | engineer | READY | Completed seasons skipped; test |
 | T-060 | P0 | No password reset anywhere in the app (only /login, /signup, /auth/signout), so a manager who forgets their password is locked out and must be fixed by hand in Supabase. Add forgot-password and set-new-password pages (supabase.auth.resetPasswordForEmail + updateUser), a link from /login, and copy that explains the email may be rate limited on the free tier. | engineer→designer | READY | Request a reset from /login; email link opens a set-new-password page; new password signs in; bad/expired link explained; works desktop + mobile |
 | T-061 | P2 | Account self-service: change email, change password while signed in, and a display-name edit in one place. | engineer→designer | READY | Each action works and is tested |
+| T-062 | P0 | Players tab performance: the page is very slow (executive). Profile the pool query + render (league_player_pool, pagination, N+1 on projections/held CTE, client table size), fix the hot path. | engineer | READY | Players tab interactive quickly at 12-team scale; before/after measured in DECISIONS; no functional regression; test guards the fix |
+| T-063 | P0 | Matchup: tap/click any player to open an itemized breakdown of every point he scored that week (each stat line -> points, summing to his total). Extends T-024. | engineer->designer | READY | Any player in a matchup opens a per-stat points report; totals reconcile; desktop + mobile |
+| T-064 | P0 | Matchup: make each player's points the dominant visual element (size, weight, placement) instead of a faint number. | designer | READY | Points read as the primary element per player row at 375px and desktop; verified |
+| T-065 | P1 | Players tab: FAB (floating action) for waivers/FAAB adds+bids. Builds on the T-023 Add/Bid sheet. | designer | READY | FAB present and reachable without h-scroll; opens the add/bid flow; mobile + desktop |
+| T-066 | P0 | Design overhaul: the app reads as a generic AI artifact, not a fantasy site friends would trust. Establish a real visual identity (type scale, color system, spacing, component polish, empty/loading states) and apply site-wide. fantasy-expert proposes a direction benchmarked vs ESPN/Yahoo/Sleeper -> executive approves -> designer executes. | fantasy-expert->designer | BLOCKED (Q: direction) | Cohesive, branded, credible UI; executive approves the direction before build; applied across Home, Players, Matchup, My Team, Standings |
 | T-003 | P1 | Full feature gap analysis vs ESPN, Yahoo, Sleeper. | fantasy-expert | READY | Prioritized list of proposals added to Backlog by Lead |
 | T-005 | P2 | Fix flaky limit in scripts/feeds.test.ts:134-137 (coverage > 3000 can't be reached; pool is ~2707). Tie it to pool size. | engineer | READY | `npm test` 225/225; test still fails if mapping genuinely regresses |
 

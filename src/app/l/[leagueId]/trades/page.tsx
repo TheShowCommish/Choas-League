@@ -108,10 +108,13 @@ export default async function TradesPage({
             );
             return [
               team.id,
-              roster.map((r) => ({
-                playerId: r.playerId,
-                label: `${r.player.full_name} (${positionLabel(r.player.position)})`,
-              })),
+              // Only players the team actually holds can be traded.
+              roster
+                .filter((r) => r.onRoster)
+                .map((r) => ({
+                  playerId: r.playerId,
+                  label: `${r.player.full_name} (${positionLabel(r.player.position)})`,
+                })),
             ] as const;
           }),
         ),
