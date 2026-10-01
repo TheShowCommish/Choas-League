@@ -49,3 +49,12 @@ The executive can reverse any of them. Mark reviewed entries with ✔ in CHECKIN
 | 2026-09-18 | T-010 | Standings page orders teams by league_seeding_order (via new members-only RPC league_standings_order), so the table and its playoff cut line match the bracket. Unconfigured leagues with distinct records read exactly as before; where records tie they now follow the logged default (head to head, then points for) instead of going straight to points for | engineer | yes |
 | 2026-09-18 | T-010 | If league_standings_order returns nothing (call failed) the standings page falls back to the old wins/losses/points-for sort rather than showing a blank table | engineer | yes |
 | 2026-09-18 | T-010 | Standings sort by the league's seeding order (same logic as the bracket), with a caption naming the tiebreakers; tied final playoff games show the winner with a 'Tiebreak' badge | engineer/designer | yes |
+| 2026-09-18 | Lead | Priority order among P0s: T-039 lineup lock, then T-031 privacy lockdown, ahead of T-018 desktop shell (correctness and executive privacy rule before layout) | Lead | yes |
+| 2026-09-18 | T-039 | Lineup lock enforced in the database (trigger), not just the cron; only starting slots lock; bench-to-bench always allowed by the DB | engineer | yes |
+| 2026-09-18 | T-039 | per_player mode: a bye-week player never locks; weekly_kickoff: everyone locks at the week's first kickoff (preseason excluded) | engineer | yes |
+| 2026-09-18 | T-039 | locked_players_to_waivers defaults to on (ESPN behaviour): a player whose game started is on waivers until the next actual waiver run | engineer | yes |
+| 2026-09-18 | T-039 | Commissioners can't write a locked lineup directly; they use the logged override, one move at a time, with a required reason | engineer | yes |
+| 2026-09-18 | T-039 | UI disables all controls for a locked player, including bench-to-bench moves the DB would allow (kept simple) | designer | yes |
+| 2026-09-18 | T-039 | Mobile My Team: one action per row; Drop moved into the swap panel. Lock chip is neutral grey, not red | designer | yes |
+| 2026-09-18 | T-039 | Allowed a 3rd review round instead of escalating: the remaining must-fix (guard on waivers_processed_at) is narrow, technical and has an obvious answer, so not an executive decision | Lead | yes |
+| 2026-10-01 | demo | Tester re-seeded "Fake Test League" while verifying the seed script; demo league id is now 3ca78f4e-339f-463c-9e43-6acbfae610fd (join code 33A2768D) | Lead | n/a |
