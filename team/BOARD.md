@@ -5,7 +5,13 @@ Only ONE task may be IN PROGRESS / REVIEW / TEST at a time.
 Priority: P0 (core promise in PRODUCT.md) · P1 (parity with ESPN) · P2 (nice to have)
 
 ## Current
-T-039 - TEST. Reviewer APPROVED (tsc/lint/db:verify clean, 503/505 with 2 known T-005 failures, new suites 95/95). Now with tester; then commit -> push -> db:push 0042. Optional 'Dropped' pill polish deferred into the design workstream (T-064/T-066), NOT restarted.
+T-062 - TEST (reviewer APPROVED: 0043 = 0039 + `materialized` only, output identical, grants/security unchanged, guard test meaningful; tsc/lint/db:verify clean, 507/509 with 2 known T-005). Tester next, then ship.
+
+## Executive direction — T-066 redesign = Direction C "Chaos" (brand-forward)
+Dark base, louder signature accent (lime/orange), custom "Chaos League" wordmark/logo, texture, personality — on ESPN-familiar layout/density, keeping the team-color wash. Highest effort; includes a branding/wordmark investment (executive approved by choosing C). Designer executes once the current code pipeline is clear. Fold T-064 (points prominence) and T-065 (FAB) into the Matchup/Players reskin so we don't style twice; persistent desktop tab bar (replaces the hamburger) is part of it.
+
+## Blocked on executive
+- `npm run db:push` BLOCKED by the production-deploy permission classifier; Lead cannot self-approve. Pending migrations: 0042 (T-039, committed 932b686 + pushed) and soon 0043 (T-062). One `npm run db:push` applies both. Until applied, T-039 lock objects and the T-062 perf fix are absent in prod.
 
 ## Executive direction — 2026-10-01
 - T-066 design: "unique but very familiar for an ESPN user." -> distinct identity on an ESPN-familiar information architecture/layout. fantasy-expert benchmarks vs ESPN first.
@@ -73,13 +79,15 @@ T-039 - TEST. Reviewer APPROVED (tsc/lint/db:verify clean, 503/505 with 2 known 
 | T-063 | P0 | Matchup: tap/click any player to open an itemized breakdown of every point he scored that week (each stat line -> points, summing to his total). Extends T-024. | engineer->designer | READY | Any player in a matchup opens a per-stat points report; totals reconcile; desktop + mobile |
 | T-064 | P0 | Matchup: make each player's points the dominant visual element (size, weight, placement) instead of a faint number. | designer | READY | Points read as the primary element per player row at 375px and desktop; verified |
 | T-065 | P1 | Players tab: FAB (floating action) for waivers/FAAB adds+bids. Builds on the T-023 Add/Bid sheet. | designer | READY | FAB present and reachable without h-scroll; opens the add/bid flow; mobile + desktop |
-| T-066 | P0 | Design overhaul: the app reads as a generic AI artifact, not a fantasy site friends would trust. Establish a real visual identity (type scale, color system, spacing, component polish, empty/loading states) and apply site-wide. fantasy-expert proposes a direction benchmarked vs ESPN/Yahoo/Sleeper -> executive approves -> designer executes. | fantasy-expert->designer | BLOCKED (Q: direction) | Cohesive, branded, credible UI; executive approves the direction before build; applied across Home, Players, Matchup, My Team, Standings |
+| T-066 | P0 | Design overhaul = Direction C "Chaos" (approved). Dark base, louder signature accent, custom "Chaos League" wordmark/logo, texture, personality, on ESPN-familiar bones; keep team-color wash. Foundation: new globals.css token ramp + accent, swap Geist for Inter + a condensed display face in layout.tsx, persistent desktop tab bar (replace hamburger in nav.tsx), real card depth, bigger type/scoreboard scale, branded empty/loading states, wordmark + favicon/themeColor. Then reskin Players + Matchup first (absorbing T-064 points prominence + T-065 FAB), then Home/My Team/Standings. | designer | READY | Direction C applied; Geist/default-blue/hamburger gone; wordmark present; Players + Matchup reskinned; verified desktop + mobile, all three themes |
+| T-067 | P1 | Players table: show headshots (PoolRow.headshot_url already exists, unused) + a projected-points column + colored availability chips (ESPN/Sleeper parity). Dovetails with T-062/T-066. | engineer->designer | READY | 28px headshot + name/team/pos/bye; projected-pts column; availability chip; no perf regression |
 | T-003 | P1 | Full feature gap analysis vs ESPN, Yahoo, Sleeper. | fantasy-expert | READY | Prioritized list of proposals added to Backlog by Lead |
 | T-005 | P2 | Fix flaky limit in scripts/feeds.test.ts:134-137 (coverage > 3000 can't be reached; pool is ~2707). Tie it to pool size. | engineer | READY | `npm test` 225/225; test still fails if mapping genuinely regresses |
 
 ## Done
 | ID | Task | Commit |
 |----|------|--------|
+| T-039 | Enforce lineup lock server-side (trigger + RPCs + cron; dropped-but-locked starters frozen; grants hardened). Reviewed + tested. db:push 0042 pending executive approval. | 932b686 |
 | T-010 | Per-league seeding tiebreakers, fixed/reseed brackets, playoff tie rules (by seed, never lets the worse team escape); standings sort like the bracket; tied games show the tiebreak winner | 7fae67a |
 | T-008 | Losers bracket is a real, per-league configured bracket (entrants, consolation/toilet bowl, fixed/reseed, own rounds + start week); league completes only when both brackets finish; new setup screen + bracket tabs | 548a348 |
 | T-007 | Position override of 0 now scores zero (actual + all projections); season projections no longer add base + override | eeda779 |
