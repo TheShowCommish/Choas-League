@@ -5,7 +5,8 @@ Only ONE task may be IN PROGRESS / REVIEW / TEST at a time.
 Priority: P0 (core promise in PRODUCT.md) · P1 (parity with ESPN) · P2 (nice to have)
 
 ## Current
-T-062 - TEST (reviewer APPROVED: 0043 = 0039 + `materialized` only, output identical, grants/security unchanged, guard test meaningful; tsc/lint/db:verify clean, 507/509 with 2 known T-005). Tester next, then ship.
+T-063 - TEST (reviewer APPROVED: displays stored authoritative total, no parallel re-score, no new fetch/N+1, T-039 untouched, a11y clean). Tester next, then ship. Designer polishes into Direction C afterward (absorbs T-064 points prominence).
+Non-blocking note (log): breakdown Points column + Total are each rounded to 1 dp independently; with 2+ sub-0.1 scoring rules a league could rarely show a 0.1 visual mismatch (underlying always reconciles). Hand to designer/future config work.
 
 ## Executive direction — T-066 redesign = Direction C "Chaos" (brand-forward)
 Dark base, louder signature accent (lime/orange), custom "Chaos League" wordmark/logo, texture, personality — on ESPN-familiar layout/density, keeping the team-color wash. Highest effort; includes a branding/wordmark investment (executive approved by choosing C). Designer executes once the current code pipeline is clear. Fold T-064 (points prominence) and T-065 (FAB) into the Matchup/Players reskin so we don't style twice; persistent desktop tab bar (replaces the hamburger) is part of it.
@@ -88,6 +89,7 @@ Dark base, louder signature accent (lime/orange), custom "Chaos League" wordmark
 | ID | Task | Commit |
 |----|------|--------|
 | T-039 | Enforce lineup lock server-side (trigger + RPCs + cron; dropped-but-locked starters frozen; grants hardened). Reviewed + tested. db:push 0042 pending executive approval. | 932b686 |
+| T-062 | Fix slow Players tab: materialize league_player_pool per-player CTEs (0043); ~308s -> ~180ms, output identical; perf + equivalence guard tests. db:push 0043 pending executive approval. | d031780 |
 | T-010 | Per-league seeding tiebreakers, fixed/reseed brackets, playoff tie rules (by seed, never lets the worse team escape); standings sort like the bracket; tied games show the tiebreak winner | 7fae67a |
 | T-008 | Losers bracket is a real, per-league configured bracket (entrants, consolation/toilet bowl, fixed/reseed, own rounds + start week); league completes only when both brackets finish; new setup screen + bracket tabs | 548a348 |
 | T-007 | Position override of 0 now scores zero (actual + all projections); season projections no longer add base + override | eeda779 |

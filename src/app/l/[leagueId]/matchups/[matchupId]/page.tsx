@@ -16,6 +16,7 @@ import type { Matchup, RosterSlot, Team } from "@/lib/types";
 import { NflCrest } from "../../nfl-crest";
 import { TeamCrest } from "../../team-theme";
 import { WeeksBadge } from "../weeks-badge";
+import { PlayerBreakdown } from "./player-breakdown";
 
 /** Both sides' rosters for one week of the matchup. */
 interface WeekRosters {
@@ -657,24 +658,25 @@ function PlayerCell({
   const right = align === "right";
 
   return (
-    <div className={`min-w-0 flex-1 ${right ? "text-right" : ""}`}>
-      <div
+    <PlayerBreakdown
+      leagueId={leagueId}
+      entry={entry}
+      className={`min-w-0 flex-1 ${right ? "text-right" : ""}`}
+    >
+      <span
         className={`flex items-center gap-1.5 ${right ? "flex-row-reverse" : ""}`}
       >
         <NflCrest abbr={entry.player.team_abbr} size={18} />
-        <Link
-          href={`/l/${leagueId}/players/${entry.playerId}`}
-          className="min-w-0 flex-1 truncate hover:text-accent"
-        >
+        <span className="min-w-0 flex-1 truncate">
           {entry.player.full_name}
-        </Link>
-      </div>
+        </span>
+      </span>
       <span className="muted block text-xs">
         {positionLabel(entry.player.position)} &middot;{" "}
         {entry.game ? entry.opponent : "BYE"} &middot;{" "}
         <span className="tabular-nums">{entry.points.toFixed(1)}</span>
       </span>
-    </div>
+    </PlayerBreakdown>
   );
 }
 
@@ -717,23 +719,27 @@ function BenchList({
 
       <ul className="divide-y divide-border/60 border-t border-border">
         {entries.map((entry) => (
-          <li
-            key={entry.playerId}
-            className="flex items-center justify-between gap-2 px-3 py-2 text-sm"
-          >
-            <span className="flex min-w-0 items-center gap-1.5">
-              <NflCrest abbr={entry.player.team_abbr} size={18} />
-              <Link
-                href={`/l/${leagueId}/players/${entry.playerId}`}
-                className="min-w-0 truncate hover:text-accent"
-              >
-                {entry.player.full_name}
-                <span className="muted ml-2 text-xs">
-                  {positionLabel(entry.player.position)}
+          <li key={entry.playerId}>
+            <PlayerBreakdown
+              leagueId={leagueId}
+              entry={entry}
+              className="block"
+            >
+              <span className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <NflCrest abbr={entry.player.team_abbr} size={18} />
+                  <span className="min-w-0 truncate">
+                    {entry.player.full_name}
+                    <span className="muted ml-2 text-xs">
+                      {positionLabel(entry.player.position)}
+                    </span>
+                  </span>
                 </span>
-              </Link>
-            </span>
-            <span className="muted tabular-nums">{entry.points.toFixed(1)}</span>
+                <span className="muted tabular-nums">
+                  {entry.points.toFixed(1)}
+                </span>
+              </span>
+            </PlayerBreakdown>
           </li>
         ))}
       </ul>
