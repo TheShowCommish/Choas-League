@@ -6,6 +6,9 @@ import { lineupHealth, startersFromRoster } from "@/lib/roster-health";
 import { makesPlayoffs } from "@/lib/standings-order";
 import { createClient } from "@/lib/supabase/server";
 import type { Matchup, StandingsRow, Transaction } from "@/lib/types";
+import { awardsByWeek } from "@/lib/weekly-awards";
+import { WeekTrophies } from "./awards/awards-block";
+import { fetchAwardMatchups } from "./awards/data";
 import { LineupHealthBanner } from "./lineup-health";
 import { matchupStatusLabel } from "./matchups/matchup-card";
 import { WeeksBadge } from "./matchups/weeks-badge";
@@ -20,8 +23,13 @@ export default async function LeagueHomePage({
     await getLeagueContext(leagueId);
   const supabase = await createClient();
 
-  const [matchups, { data: standings }, { data: activity }, ownRoster] =
-    await Promise.all([
+  const [
+    matchups,
+    { data: standings },
+    { data: activity },
+    ownRoster,
+    awardMatchups,
+  ] = await Promise.all([
       fetchMatchupsCoveringWeek(supabase, {
         leagueId,
         season: league.season,
@@ -44,9 +52,15 @@ export default async function LeagueHomePage({
             league.current_week,
           )
         : Promise.resolve(null),
+      fetchAwardMatchups(supabase, leagueId, league.season),
     ]);
 
   const teamById = new Map(teams.map((t) => [t.id, t]));
+
+  // Weekly trophies for the latest finalized week (T-076); the Awards page
+  // lists every week.
+  const latestAwards = awardsByWeek(awardMatchups)[0] ?? null;
+  const teamName = (id: string) => teamById.get(id)?.name ?? "?";
   const myMatchup = matchups.find(
     (m) => m.home_team_id === myTeam?.id || m.away_team_id === myTeam?.id,
   );
@@ -197,6 +211,18 @@ export default async function LeagueHomePage({
           )}
         </section>
       </div>
+
+      {latestAwards && (
+        <section>
+          <div className="mb-2 flex items-baseline justify-between">
+            <h2 className="h2">Week {latestAwards.week} trophies</h2>
+            <Link href={`/l/${leagueId}/awards`} className="muted text-sm">
+              All awards
+            </Link>
+          </div>
+          <WeekTrophies entry={latestAwards} teamName={teamName} />
+        </section>
+      )}
     </div>
   );
 }

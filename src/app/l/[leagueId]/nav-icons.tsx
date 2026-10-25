@@ -19,6 +19,7 @@ export type NavIconName =
   | "chat"
   | "draft"
   | "admin"
+  | "awards"
   | "close";
 
 const PATHS: Record<NavIconName, React.ReactNode> = {
@@ -103,6 +104,17 @@ const PATHS: Record<NavIconName, React.ReactNode> = {
       <path d="M4 17h3" />
       <path d="M11 17h9" />
       <circle cx="9" cy="17" r="2" />
+    </>
+  ),
+  // A trophy on its base: the weekly awards.
+  awards: (
+    <>
+      <path d="M8 4h8v4a4 4 0 0 1-8 0Z" />
+      <path d="M8 5.5H5.5V7a2.5 2.5 0 0 0 2.5 2.5" />
+      <path d="M16 5.5h2.5V7a2.5 2.5 0 0 1-2.5 2.5" />
+      <path d="M12 12v4" />
+      <path d="M9 20h6" />
+      <path d="M10 16h4v4h-4Z" />
     </>
   ),
   close: (

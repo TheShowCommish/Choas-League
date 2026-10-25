@@ -33,6 +33,7 @@ export function LeagueNav({
     { href: `${base}/players`, label: "Players", icon: "players", phoneTab: true },
     { href: `${base}/trades`, label: "Trades", icon: "trades" },
     { href: `${base}/standings`, label: "Standings", icon: "standings" },
+    { href: `${base}/awards`, label: "Awards", icon: "awards" },
     { href: `${base}/transactions`, label: "Transactions", icon: "log" },
     { href: `${base}/chat`, label: "Chat", icon: "chat" },
   ];
