@@ -9,7 +9,8 @@ T-066 redesign shipping in reviewed slices on main (NOT pushed; deploy/db:push s
 - **d3b089a** Foundation: token ramp + gridiron-orange accent, Inter/Oswald, Chaos wordmark+favicon, persistent desktop tab bar (replaces hamburger), home scoreboard, login/signup wordmark. Reviewed; public screens verified desktop+mobile dark+light.
 - **1138864** T-064 matchup points-prominence + T-063 breakdown fixes (reconcilePrecision, Scheduled-vs-In-progress label). Reviewed (name-width round 2 at 375px).
 - Players pass (committed): ESPN desktop table + mobile cards, headshots (headshot_url), availability chips, sticky mobile search + position chips, waiver FAB bottom-sheet. Reviewed APPROVED. Absorbs T-023 + T-065 + T-067 presentation half. No data/migration change.
-NEXT reskins: Home, My Team, Standings.
+- Standings pass (committed): ESPN desktop table (PCT + GB + playoff cut line) + no-scroll mobile cards; streak left out (no data -> T-070). Reviewed APPROVED. T-021.
+NEXT reskins: My Team, Home.
 VERIFICATION (executive, 2026-10-25): public screens + code review; authed screens by executive click-through of team/QA-T066.md. No tester-login pass for this redesign.
 OPEN: (1) waiver FAB is page-scoped v1 (adds free agents on the current page) — pending executive call on full in-FAB search. (2) Projected-points column = T-069 (needs an RPC migration; batch into next db:push).
 
@@ -89,6 +90,7 @@ Dark base, louder signature accent (lime/orange), custom "Chaos League" wordmark
 | T-067 | P1 | Players table parity. Headshots + colored availability chips DONE in the T-066 Players pass. Remaining = projected-points column, split to T-069 (needs an RPC change). | engineer->designer | PARTIAL | 28px headshot + availability chip done; proj-pts column = T-069 |
 | T-069 | P1 | Add next-week projected points to the league_player_pool RPC output (new PoolRow.proj_points) WITHOUT regressing the T-062 materialized-CTE perf (~180ms); then designer adds the projected-points column to the desktop table + mobile card. New migration (~0044) — batches into the next db:push. | engineer->designer | READY | proj_points returned by the RPC; column shown desktop + mobile; measured no perf regression; test |
 | T-068 | P2 | Unit-test reconcilePrecision (matchups/[matchupId]/player-breakdown.tsx): export it (or a thin helper) and cover the 1-vs-2dp selection — displayed lines reconcile to the displayed total, a genuine 0 line still shows 0, fallback to 2dp when neither is perfect. Raised by the T-064 review. | engineer | READY | Test covers 1dp, 2dp-fallback, and zero-line cases |
+| T-070 | P2 | Standings streak column (STRK, e.g. "W3"/"L1"): the standings view exposes no streak/recent-results field, so this needs a data source (recent match results per team) before the designer can add the column desktop + mobile. Raised by the T-021 reskin. | engineer->designer | READY | Per-team streak available; STRK column shown desktop + mobile; test |
 | T-003 | P1 | Full feature gap analysis vs ESPN, Yahoo, Sleeper. | fantasy-expert | READY | Prioritized list of proposals added to Backlog by Lead |
 | T-005 | P2 | Fix flaky limit in scripts/feeds.test.ts:134-137 (coverage > 3000 can't be reached; pool is ~2707). Tie it to pool size. | engineer | READY | `npm test` 225/225; test still fails if mapping genuinely regresses |
 
