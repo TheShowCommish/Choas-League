@@ -238,7 +238,9 @@ export function LineupEditor({
             {allLocked ? "Lineup locked" : `${lockedCount} locked`}
           </span>
         )}
-        <span className="pill ml-auto">{projectedTotal.toFixed(1)} pts</span>
+        <span className="pill ml-auto">
+          <span className="score">{projectedTotal.toFixed(1)}</span> pts
+        </span>
         {canFill && (
           <button
             type="button"
@@ -493,12 +495,12 @@ function SpotTable({ spots, ...props }: ListProps & { spots: LineupSpot[] }) {
                         </>
                       ))}
                   </td>
-                  <td className="text-right tabular-nums">
+                  <td className="text-right">
                     {entry && (
-                      <>
+                      <span className="score">
                         {entry.points.toFixed(1)}
                         {!entry.isFinal && entry.points !== 0 && " *"}
-                      </>
+                      </span>
                     )}
                   </td>
                   <td className="pr-3">
@@ -740,7 +742,7 @@ function PlayerLine({
 
   const points = (
     <>
-      {entry.points.toFixed(1)} pts
+      <span className="score">{entry.points.toFixed(1)}</span> pts
       {!entry.isFinal && entry.points !== 0 && " *"}
     </>
   );

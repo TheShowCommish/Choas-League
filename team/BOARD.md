@@ -10,7 +10,8 @@ T-066 redesign shipping in reviewed slices on main (NOT pushed; deploy/db:push s
 - **1138864** T-064 matchup points-prominence + T-063 breakdown fixes (reconcilePrecision, Scheduled-vs-In-progress label). Reviewed (name-width round 2 at 375px).
 - Players pass (committed): ESPN desktop table + mobile cards, headshots (headshot_url), availability chips, sticky mobile search + position chips, waiver FAB bottom-sheet. Reviewed APPROVED. Absorbs T-023 + T-065 + T-067 presentation half. No data/migration change.
 - Standings pass (committed): ESPN desktop table (PCT + GB + playoff cut line) + no-scroll mobile cards; streak left out (no data -> T-070). Reviewed APPROVED. T-021.
-NEXT reskins: My Team, Home.
+- My Team pass (committed): points onto the condensed .score face, matchup preview head-to-head (shared status label + dim-loser on final), 16-man desktop fit confirmed. T-022 (Proj column still deferred to T-069). No data change.
+NEXT reskin: Home (last page).
 VERIFICATION (executive, 2026-10-25): public screens + code review; authed screens by executive click-through of team/QA-T066.md. No tester-login pass for this redesign.
 OPEN: (1) waiver FAB is page-scoped v1 (adds free agents on the current page) — pending executive call on full in-FAB search. (2) Projected-points column = T-069 (needs an RPC migration; batch into next db:push).
 

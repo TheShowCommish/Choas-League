@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { getLeagueContext } from "@/lib/league";
-import { fetchMatchupsCoveringWeek } from "@/lib/matchup-weeks";
+import { fetchMatchupsCoveringWeek, matchupWinner } from "@/lib/matchup-weeks";
 import { createClient } from "@/lib/supabase/server";
 import { getTeamRoster } from "@/lib/roster";
 import { byPosition, positionLabel } from "@/lib/roster-slots";
 import type { Matchup, StandingsRow, Team } from "@/lib/types";
 import { LineupEditor } from "./editor";
 import { TeamSettings } from "./team-settings";
+import { matchupStatusLabel } from "../matchups/matchup-card";
 import { WeeksBadge } from "../matchups/weeks-badge";
 import { TeamCrest, TeamTheme } from "../team-theme";
 import { WeekPicker } from "../week-picker";
@@ -254,6 +255,13 @@ function MatchupPreview({
   const theirScore = Number(isHome ? matchup.away_score : matchup.home_score);
   const played = matchup.status !== "scheduled";
 
+  // On a final, the losing side's score dims to muted, matching the
+  // matchup-detail convention; a tie (no winner) dims neither.
+  const winnerSide = matchupWinner(matchup);
+  const mySide = isHome ? "home" : "away";
+  const iWon = winnerSide === mySide;
+  const theyWon = winnerSide !== null && winnerSide !== mySide;
+
   const record = (teamId: string) => {
     const row = standings.find((s) => s.team_id === teamId);
     if (!row) return null;
@@ -276,11 +284,7 @@ function MatchupPreview({
         </span>
         <WeeksBadge matchup={matchup} week={week} compact />
         <span className="muted ml-auto text-xs">
-          {matchup.status === "final"
-            ? "Final"
-            : matchup.status === "in_progress"
-              ? "In progress"
-              : "Not started"}
+          {matchupStatusLabel(matchup)}
         </span>
       </div>
 
@@ -301,7 +305,7 @@ function MatchupPreview({
         </span>
 
         {played && (
-          <span className="text-lg font-semibold tabular-nums">
+          <span className={`score text-lg ${theyWon ? "text-muted" : ""}`}>
             {myScore.toFixed(1)}
           </span>
         )}
@@ -309,7 +313,7 @@ function MatchupPreview({
         <span className="muted px-1 text-xs">vs</span>
 
         {played && (
-          <span className="text-lg font-semibold tabular-nums">
+          <span className={`score text-lg ${iWon ? "text-muted" : ""}`}>
             {theirScore.toFixed(1)}
           </span>
         )}
