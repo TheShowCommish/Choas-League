@@ -38,6 +38,19 @@ export function PlayerBreakdown({
   const { lines } = summarizeBreakdown(entry.breakdown);
   const onBye = entry.game === null;
 
+  // Show the points column at the fewest decimals that still (a) lets the
+  // visible lines add up to the visible total and (b) never prints a real
+  // contribution as "0.0". One place covers almost everything; a league
+  // with two sub-0.1 rules on one player falls to two.
+  const precision = reconcilePrecision(lines, entry.points);
+
+  // The live state of the player's NFL game, said plainly: before kickoff
+  // it is Scheduled, not "In progress".
+  const statusLabel = onBye
+    ? "BYE"
+    : GAME_STATUS[entry.game?.status ?? ""] ??
+      (entry.isFinal ? "Final" : "Scheduled");
+
   return (
     <div className={className}>
       <button
@@ -73,9 +86,8 @@ export function PlayerBreakdown({
               <p className="muted text-xs">
                 {positionLabel(entry.player.position)}
                 {entry.player.team_abbr ? ` · ${entry.player.team_abbr}` : ""}
-                {" · "}
-                {onBye ? "BYE" : (entry.opponent ?? "")}
-                {!onBye && (entry.isFinal ? " · Final" : " · In progress")}
+                {!onBye && entry.opponent ? ` · ${entry.opponent}` : ""}
+                {` · ${statusLabel}`}
               </p>
             </div>
             <button
@@ -92,8 +104,8 @@ export function PlayerBreakdown({
 
           <div className="mb-3 flex items-baseline justify-between border-y border-border py-2">
             <span className="label">Week total</span>
-            <span className="text-2xl font-bold tabular-nums">
-              {entry.points.toFixed(1)}
+            <span className="score text-3xl">
+              {entry.points.toFixed(precision)}
             </span>
           </div>
 
@@ -136,7 +148,7 @@ export function PlayerBreakdown({
                         line.points < 0 ? "text-negative" : ""
                       }`}
                     >
-                      {formatPoints(line.points)}
+                      {formatPoints(line.points, precision)}
                     </td>
                   </tr>
                 ))}
@@ -146,7 +158,7 @@ export function PlayerBreakdown({
                   <td className="py-1.5 pr-2">Total</td>
                   <td />
                   <td className="py-1.5 text-right tabular-nums">
-                    {entry.points.toFixed(1)}
+                    {entry.points.toFixed(precision)}
                   </td>
                 </tr>
               </tfoot>
@@ -168,7 +180,43 @@ export function PlayerBreakdown({
 }
 
 /** Points with an explicit sign, so a negative line reads as a subtraction. */
-function formatPoints(points: number): string {
-  const fixed = points.toFixed(1);
+function formatPoints(points: number, precision: number): string {
+  const fixed = points.toFixed(precision);
   return points > 0 ? `+${fixed}` : fixed;
+}
+
+/** What each NFL game status is called in the breakdown header. */
+const GAME_STATUS: Record<string, string> = {
+  scheduled: "Scheduled",
+  in_progress: "In progress",
+  final: "Final",
+  postponed: "Postponed",
+};
+
+function roundTo(n: number, places: number): number {
+  const f = 10 ** places;
+  return Math.round(n * f) / f;
+}
+
+/**
+ * The fewest decimal places (1, else 2) at which the displayed lines both
+ * add up to the displayed total and never show a real contribution as zero.
+ * Falls back to 2 -- more faithful than 1 -- if neither is perfect.
+ */
+function reconcilePrecision(
+  lines: { points: number }[],
+  total: number,
+): number {
+  for (const p of [1, 2]) {
+    const rounded = lines.map((l) => roundTo(l.points, p));
+    const noneDropped = lines.every(
+      (l, i) => l.points === 0 || rounded[i] !== 0,
+    );
+    const sum = roundTo(
+      rounded.reduce((acc, v) => acc + v, 0),
+      p,
+    );
+    if (noneDropped && sum === roundTo(total, p)) return p;
+  }
+  return 2;
 }

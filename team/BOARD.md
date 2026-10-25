@@ -5,8 +5,10 @@ Only ONE task may be IN PROGRESS / REVIEW / TEST at a time.
 Priority: P0 (core promise in PRODUCT.md) · P1 (parity with ESPN) · P2 (nice to have)
 
 ## Current
-T-063 - TEST (reviewer APPROVED: displays stored authoritative total, no parallel re-score, no new fetch/N+1, T-039 untouched, a11y clean). Tester next, then ship. Designer polishes into Direction C afterward (absorbs T-064 points prominence).
-Non-blocking note (log): breakdown Points column + Total are each rounded to 1 dp independently; with 2+ sub-0.1 scoring rules a league could rarely show a 0.1 visual mismatch (underlying always reconciles). Hand to designer/future config work.
+T-066 Phase 1 FOUNDATION committed **d3b089a** (token ramp + gridiron-orange accent, Inter/Oswald, Chaos wordmark+favicon, persistent desktop tab bar replacing the hamburger, bigger home scoreboard, login/signup wordmark). Reviewed APPROVED; public sign-in/sign-up verified desktop+mobile, dark+light. NOT pushed (deploy/db:push still gated).
+T-064 matchup points-prominence (+2 T-063 breakdown fixes: reconcilePrecision, Scheduled-vs-In-progress label) — review round 1 CHANGES REQUESTED (player name truncates <12ch at 375px; everything else approved). Designer fixing name width, then re-review -> commit.
+VERIFICATION APPROACH (executive, 2026-10-25): verify public screens + code review; authed screens by executive click-through of team/QA-T066.md. No tester-login pass for this redesign.
+Reskin order after matchup: Players (ESPN table + T-067 headshots/proj/chips + T-065 FAB), then Home / My Team / Standings.
 
 ## Executive direction — T-066 redesign = Direction C "Chaos" (brand-forward)
 Dark base, louder signature accent (lime/orange), custom "Chaos League" wordmark/logo, texture, personality — on ESPN-familiar layout/density, keeping the team-color wash. Highest effort; includes a branding/wordmark investment (executive approved by choosing C). Designer executes once the current code pipeline is clear. Fold T-064 (points prominence) and T-065 (FAB) into the Matchup/Players reskin so we don't style twice; persistent desktop tab bar (replaces the hamburger) is part of it.
@@ -82,6 +84,7 @@ Dark base, louder signature accent (lime/orange), custom "Chaos League" wordmark
 | T-065 | P1 | Players tab: FAB (floating action) for waivers/FAAB adds+bids. Builds on the T-023 Add/Bid sheet. | designer | READY | FAB present and reachable without h-scroll; opens the add/bid flow; mobile + desktop |
 | T-066 | P0 | Design overhaul = Direction C "Chaos" (approved). Dark base, louder signature accent, custom "Chaos League" wordmark/logo, texture, personality, on ESPN-familiar bones; keep team-color wash. Foundation: new globals.css token ramp + accent, swap Geist for Inter + a condensed display face in layout.tsx, persistent desktop tab bar (replace hamburger in nav.tsx), real card depth, bigger type/scoreboard scale, branded empty/loading states, wordmark + favicon/themeColor. Then reskin Players + Matchup first (absorbing T-064 points prominence + T-065 FAB), then Home/My Team/Standings. | designer | READY | Direction C applied; Geist/default-blue/hamburger gone; wordmark present; Players + Matchup reskinned; verified desktop + mobile, all three themes |
 | T-067 | P1 | Players table: show headshots (PoolRow.headshot_url already exists, unused) + a projected-points column + colored availability chips (ESPN/Sleeper parity). Dovetails with T-062/T-066. | engineer->designer | READY | 28px headshot + name/team/pos/bye; projected-pts column; availability chip; no perf regression |
+| T-068 | P2 | Unit-test reconcilePrecision (matchups/[matchupId]/player-breakdown.tsx): export it (or a thin helper) and cover the 1-vs-2dp selection — displayed lines reconcile to the displayed total, a genuine 0 line still shows 0, fallback to 2dp when neither is perfect. Raised by the T-064 review. | engineer | READY | Test covers 1dp, 2dp-fallback, and zero-line cases |
 | T-003 | P1 | Full feature gap analysis vs ESPN, Yahoo, Sleeper. | fantasy-expert | READY | Prioritized list of proposals added to Backlog by Lead |
 | T-005 | P2 | Fix flaky limit in scripts/feeds.test.ts:134-137 (coverage > 3000 can't be reached; pool is ~2707). Tie it to pool size. | engineer | READY | `npm test` 225/225; test still fails if mapping genuinely regresses |
 
@@ -90,6 +93,7 @@ Dark base, louder signature accent (lime/orange), custom "Chaos League" wordmark
 |----|------|--------|
 | T-039 | Enforce lineup lock server-side (trigger + RPCs + cron; dropped-but-locked starters frozen; grants hardened). Reviewed + tested. db:push 0042 pending executive approval. | 932b686 |
 | T-062 | Fix slow Players tab: materialize league_player_pool per-player CTEs (0043); ~308s -> ~180ms, output identical; perf + equivalence guard tests. db:push 0043 pending executive approval. | d031780 |
+| T-063 | Itemized per-player scoring breakdown on matchup detail: tap any player -> modal of each scored stat -> points, reconciling to the stored total; multi-week per week; no migration/N+1; property + reconciliation tests. | 0829ac5 |
 | T-010 | Per-league seeding tiebreakers, fixed/reseed brackets, playoff tie rules (by seed, never lets the worse team escape); standings sort like the bracket; tied games show the tiebreak winner | 7fae67a |
 | T-008 | Losers bracket is a real, per-league configured bracket (entrants, consolation/toilet bowl, fixed/reseed, own rounds + start week); league completes only when both brackets finish; new setup screen + bracket tabs | 548a348 |
 | T-007 | Position override of 0 now scores zero (actual + all projections); season projections no longer add base + override | eeda779 |

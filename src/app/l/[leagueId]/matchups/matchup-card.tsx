@@ -104,7 +104,7 @@ export function MatchupSide({
       )}
       {showScore && (
         <span
-          className={`shrink-0 tabular-nums ${winner ? "font-semibold" : "text-muted"}`}
+          className={`score shrink-0 text-lg leading-none ${winner ? "text-foreground" : "text-muted"}`}
         >
           {score.toFixed(1)}
         </span>

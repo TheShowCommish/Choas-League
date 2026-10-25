@@ -178,6 +178,7 @@ export default async function MatchupPage({
             team={away}
             score={awayScore}
             winner={!picked && isFinal && awayWon && away !== null}
+            dim={!picked && isFinal && homeWon}
             align="left"
           />
 
@@ -203,6 +204,7 @@ export default async function MatchupPage({
             team={home}
             score={homeScore}
             winner={!picked && isFinal && homeWon}
+            dim={!picked && isFinal && awayWon && away !== null}
             align="right"
           />
         </div>
@@ -340,6 +342,7 @@ function BoxScore({
             side: "away" as const,
             total: awayTotal,
             won: isFinal && awayTotal > homeTotal,
+            lost: isFinal && homeTotal > awayTotal,
           },
         ]
       : []),
@@ -348,6 +351,7 @@ function BoxScore({
       side: "home" as const,
       total: homeTotal,
       won: isFinal && away !== null && homeTotal > awayTotal,
+      lost: isFinal && away !== null && awayTotal > homeTotal,
     },
   ];
 
@@ -437,8 +441,8 @@ function BoxScore({
                   return (
                     <td
                       key={p.week}
-                      className={`px-1.5 py-2 text-right whitespace-nowrap tabular-nums sm:px-2 ${
-                        behind ? "text-muted" : "font-medium"
+                      className={`score px-1.5 py-2 text-right text-base whitespace-nowrap sm:px-2 sm:text-lg ${
+                        behind ? "font-semibold text-muted" : "text-foreground"
                       }`}
                     >
                       {mine.toFixed(1)}
@@ -446,8 +450,8 @@ function BoxScore({
                   );
                 })}
                 <td
-                  className={`bg-surface-2 px-2 py-2 text-right whitespace-nowrap tabular-nums sm:px-3 ${
-                    row.won ? "font-bold" : "font-semibold"
+                  className={`score bg-surface-2 px-2 py-2 text-right text-lg whitespace-nowrap sm:px-3 sm:text-xl ${
+                    row.lost ? "text-muted" : "text-foreground"
                   }`}
                 >
                   {row.total.toFixed(1)}
@@ -539,11 +543,14 @@ function ScoreHalf({
   team,
   score,
   winner,
+  dim = false,
   align,
 }: {
   team: Team | null;
   score: number;
   winner: boolean;
+  /** This side lost a decided game: its score is dimmed so the winner leads. */
+  dim?: boolean;
   align: "left" | "right";
 }) {
   const right = align === "right";
@@ -582,9 +589,11 @@ function ScoreHalf({
         />
         <p className="min-w-0 flex-1 truncate text-sm">{team.name}</p>
       </div>
+      {/* The scoreboard number: condensed, confident, the loudest thing on
+          the page. The loser's is dimmed so the winner reads at a glance. */}
       <p
-        className={`mt-1 text-2xl tabular-nums ${
-          winner ? "font-bold" : "font-semibold"
+        className={`score mt-1 text-4xl leading-none md:text-5xl ${
+          dim ? "text-muted" : "text-foreground"
         }`}
       >
         {score.toFixed(1)}
@@ -625,13 +634,20 @@ function MatchupRow({
   home?: RosterEntry;
   away?: RosterEntry;
 }) {
+  // When both spots are filled, the one who outscored the other keeps full
+  // ink and the other dims -- the two numbers flanking the slot read as the
+  // little head-to-head they are.
+  const bothHere = home !== undefined && away !== undefined;
+  const awayDim = bothHere && away!.points < home!.points;
+  const homeDim = bothHere && home!.points < away!.points;
+
   return (
-    <div className="flex items-center gap-2 px-2 py-2 text-sm">
-      <PlayerCell entry={away} leagueId={leagueId} align="left" />
-      <span className="w-14 shrink-0 text-center text-xs text-muted">
+    <div className="flex items-center gap-1 px-2 py-2 text-sm">
+      <PlayerCell entry={away} leagueId={leagueId} align="left" dim={awayDim} />
+      <span className="w-12 shrink-0 text-center text-[11px] font-semibold tracking-wide text-muted uppercase">
         {label}
       </span>
-      <PlayerCell entry={home} leagueId={leagueId} align="right" />
+      <PlayerCell entry={home} leagueId={leagueId} align="right" dim={homeDim} />
     </div>
   );
 }
@@ -640,10 +656,12 @@ function PlayerCell({
   entry,
   leagueId,
   align,
+  dim = false,
 }: {
   entry?: RosterEntry;
   leagueId: string;
   align: "left" | "right";
+  dim?: boolean;
 }) {
   if (!entry) {
     return (
@@ -658,23 +676,36 @@ function PlayerCell({
   const right = align === "right";
 
   return (
-    <PlayerBreakdown
-      leagueId={leagueId}
-      entry={entry}
-      className={`min-w-0 flex-1 ${right ? "text-right" : ""}`}
-    >
+    <PlayerBreakdown leagueId={leagueId} entry={entry} className="min-w-0 flex-1">
+      {/* The points sit on the inside edge, next to the slot label, so the
+          two sides' numbers face off; the name and meta trail to the
+          outside. The number is the dominant mark in the row. */}
       <span
-        className={`flex items-center gap-1.5 ${right ? "flex-row-reverse" : ""}`}
+        className={`flex items-center gap-1.5 sm:gap-2 ${right ? "flex-row-reverse" : ""}`}
       >
-        <NflCrest abbr={entry.player.team_abbr} size={18} />
-        <span className="min-w-0 flex-1 truncate">
-          {entry.player.full_name}
+        <span
+          className={`score w-11 shrink-0 text-xl leading-none sm:w-14 sm:text-2xl ${
+            right ? "text-left" : "text-right"
+          } ${dim ? "text-muted" : "text-foreground"}`}
+        >
+          {entry.points.toFixed(1)}
         </span>
-      </span>
-      <span className="muted block text-xs">
-        {positionLabel(entry.player.position)} &middot;{" "}
-        {entry.game ? entry.opponent : "BYE"} &middot;{" "}
-        <span className="tabular-nums">{entry.points.toFixed(1)}</span>
+        <span className={`min-w-0 flex-1 ${right ? "text-right" : ""}`}>
+          <span
+            className={`flex items-center gap-1.5 ${right ? "flex-row-reverse" : ""}`}
+          >
+            <span className="hidden shrink-0 sm:inline-flex">
+              <NflCrest abbr={entry.player.team_abbr} size={18} />
+            </span>
+            <span className="min-w-0 flex-1 truncate">
+              {entry.player.full_name}
+            </span>
+          </span>
+          <span className="muted block text-xs">
+            {positionLabel(entry.player.position)} &middot;{" "}
+            {entry.game ? entry.opponent : "BYE"}
+          </span>
+        </span>
       </span>
     </PlayerBreakdown>
   );
@@ -712,9 +743,7 @@ function BenchList({
           {team.name} bench
         </span>
         <span className="muted shrink-0 text-xs">bench points</span>
-        <span className="shrink-0 font-semibold tabular-nums">
-          {total.toFixed(1)}
-        </span>
+        <span className="score shrink-0 text-lg">{total.toFixed(1)}</span>
       </summary>
 
       <ul className="divide-y divide-border/60 border-t border-border">
@@ -735,7 +764,7 @@ function BenchList({
                     </span>
                   </span>
                 </span>
-                <span className="muted tabular-nums">
+                <span className="score shrink-0 text-base text-foreground">
                   {entry.points.toFixed(1)}
                 </span>
               </span>
