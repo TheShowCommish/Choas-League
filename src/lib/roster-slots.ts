@@ -11,7 +11,12 @@ import type { RosterSlot } from "@/lib/types";
  * positions -- a row of two RBs becomes RB and RB. This is the shape the
  * lineup editor and the matchup view both render.
  */
-export function expandSlots(slots: RosterSlot[]) {
+export function expandSlots<
+  T extends Pick<
+    RosterSlot,
+    "slot_key" | "label" | "count" | "is_starter" | "eligible_positions"
+  >,
+>(slots: T[]) {
   return slots.flatMap((slot) =>
     Array.from({ length: slot.count }, (_, i) => ({
       key: `${slot.slot_key}-${i}`,

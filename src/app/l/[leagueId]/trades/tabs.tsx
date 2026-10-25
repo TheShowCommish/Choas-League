@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import type { Team, Trade } from "@/lib/types";
+import type { RosterSlot, Team, Trade } from "@/lib/types";
 import type { ValuedPlayer } from "@/lib/trade-finder";
+import type { TradeImpact } from "@/lib/trade-impact";
 import type { TradeItemRow, TradePlayerOption } from "./page";
 import { TradeFinder, TradingBlock } from "./finder";
 import { TradeList } from "./trade-list";
@@ -24,7 +25,11 @@ export function TradeTabs({
   trades,
   items,
   playerNames,
+  playerValues,
   rosters,
+  rosterSlots,
+  positionLimits,
+  impacts,
   initialPartner,
   pendingForMe,
 }: {
@@ -35,7 +40,11 @@ export function TradeTabs({
   trades: Trade[];
   items: TradeItemRow[];
   playerNames: Record<string, string>;
+  playerValues: Record<string, { avg: number; projection: number | null }>;
   rosters: Record<string, TradePlayerOption[]>;
+  rosterSlots: RosterSlot[];
+  positionLimits: Record<string, number>;
+  impacts: Record<string, TradeImpact>;
   initialPartner: string | null;
   pendingForMe: number;
 }) {
@@ -94,6 +103,8 @@ export function TradeTabs({
               myTeam={myTeam}
               otherTeams={teams.filter((t) => t.id !== myTeam.id)}
               rosters={rosters}
+              rosterSlots={rosterSlots}
+              positionLimits={positionLimits}
             />
           )}
           <TradeList
@@ -103,6 +114,8 @@ export function TradeTabs({
             teams={teams}
             myTeamId={myTeam?.id ?? null}
             playerNames={playerNames}
+            playerValues={playerValues}
+            impacts={impacts}
           />
         </div>
       )}
