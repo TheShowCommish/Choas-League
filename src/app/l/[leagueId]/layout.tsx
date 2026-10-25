@@ -6,6 +6,8 @@ import { ThemeSwitch } from "@/app/theme-switch";
 import { LeagueMain } from "./main-width";
 import { LeagueSwitcher, type LeagueOption } from "./league-switcher";
 import { LeagueNav } from "./nav";
+import Link from "next/link";
+import { ChaosMark, Wordmark } from "@/app/wordmark";
 
 interface MembershipRow {
   role: "commissioner" | "member";
@@ -62,13 +64,25 @@ export default async function LeagueLayout({
         accent rather than to nothing.
       */}
       <TeamThemeVars
-        color={myTeam?.color ?? "#4f8ef7"}
-        secondary={myTeam?.secondary_color ?? "#2a5db0"}
+        color={myTeam?.color ?? "#ff7a2f"}
+        secondary={myTeam?.secondary_color ?? "#c2410c"}
       />
 
       <header className="border-b border-border bg-surface">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-3 px-4 py-3">
-          <div className="min-w-0">
+          {/* The brand lockup: the mark alone keeps the phone header short;
+              the full wordmark appears from md, where there is room for the
+              league's own identity to sit beside its name. */}
+          <Link
+            href={`/l/${leagueId}`}
+            aria-label="Chaos League home"
+            className="shrink-0 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+          >
+            <ChaosMark size={30} className="md:hidden" />
+            <Wordmark markSize={30} className="hidden md:inline-flex" />
+          </Link>
+
+          <div className="min-w-0 flex-1 border-l border-border pl-3">
             <LeagueSwitcher
               current={{
                 id: league.id,

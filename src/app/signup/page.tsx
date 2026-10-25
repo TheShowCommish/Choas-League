@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Wordmark } from "@/app/wordmark";
 
 export default function SignupPage() {
   const router = useRouter();
@@ -46,6 +47,7 @@ export default function SignupPage() {
 
   return (
     <main className="mx-auto w-full max-w-sm flex-1 px-4 py-12">
+      <Wordmark markSize={30} className="mb-5" />
       <h1 className="h1 mb-1">Create an account</h1>
       <p className="muted mb-6">
         One login per manager. Your commissioner will give you a join code.

@@ -81,7 +81,7 @@ export default async function LeagueHomePage({
         ) : (
           <p className="card muted">
             {myTeam
-              ? "No matchup scheduled this week."
+              ? "No matchup on the board this week."
               : "You do not have a team in this league yet."}
           </p>
         )}
@@ -96,7 +96,7 @@ export default async function LeagueHomePage({
             </Link>
           </div>
           {top.length === 0 ? (
-            <p className="card muted">No results yet.</p>
+            <p className="card muted">No standings yet — nobody has played a down.</p>
           ) : (
             <ol className="card-tight divide-y divide-border/60">
               {top.map((row, i) => (
@@ -129,7 +129,7 @@ export default async function LeagueHomePage({
             </Link>
           </div>
           {(activity ?? []).length === 0 ? (
-            <p className="card muted">Nothing yet.</p>
+            <p className="card muted">Quiet so far. Adds, drops and trades land here.</p>
           ) : (
             <ul className="card-tight divide-y divide-border/60">
               {(activity ?? []).map((row) => {
@@ -183,16 +183,16 @@ function MatchupCard({
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm">{awayName}</p>
-          <p className="text-2xl font-semibold tabular-nums">
+          <p className="score text-3xl md:text-4xl">
             {Number(matchup.away_score).toFixed(1)}
           </p>
         </div>
-        <span className="muted text-xs">
-          {matchup.status === "final" ? "FINAL" : "vs"}
+        <span className="muted shrink-0 text-xs font-semibold tracking-wide uppercase">
+          {matchup.status === "final" ? "Final" : "vs"}
         </span>
         <div className="min-w-0 flex-1 text-right">
           <p className="truncate text-sm">{homeName}</p>
-          <p className="text-2xl font-semibold tabular-nums">
+          <p className="score text-3xl md:text-4xl">
             {Number(matchup.home_score).toFixed(1)}
           </p>
         </div>

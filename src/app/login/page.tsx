@@ -4,6 +4,7 @@ import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { Wordmark } from "@/app/wordmark";
 
 function LoginForm() {
   const router = useRouter();
@@ -88,8 +89,11 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <main className="mx-auto w-full max-w-sm flex-1 px-4 py-12">
-      <h1 className="h1 mb-1">Chaos League</h1>
-      <p className="muted mb-6">Sign in to manage your team.</p>
+      <Wordmark markSize={40} className="mb-2 [&_span]:text-2xl" />
+      <h1 className="sr-only">Chaos League</h1>
+      <p className="muted mb-6">
+        Every stat in the box score counts. Sign in to run your team.
+      </p>
       <Suspense fallback={<div className="card">Loading...</div>}>
         <LoginForm />
       </Suspense>
