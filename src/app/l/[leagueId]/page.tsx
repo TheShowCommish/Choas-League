@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { getLeagueContext } from "@/lib/league";
-import { fetchMatchupsCoveringWeek } from "@/lib/matchup-weeks";
+import { fetchMatchupsCoveringWeek, matchupWinner } from "@/lib/matchup-weeks";
+import { makesPlayoffs } from "@/lib/standings-order";
 import { createClient } from "@/lib/supabase/server";
 import type { Matchup, StandingsRow, Transaction } from "@/lib/types";
+import { matchupStatusLabel } from "./matchups/matchup-card";
 import { WeeksBadge } from "./matchups/weeks-badge";
 
 export default async function LeagueHomePage({
@@ -99,24 +101,41 @@ export default async function LeagueHomePage({
             <p className="card muted">No standings yet — nobody has played a down.</p>
           ) : (
             <ol className="card-tight divide-y divide-border/60">
-              {top.map((row, i) => (
-                <li
-                  key={row.team_id}
-                  className="flex items-center gap-3 px-3 py-2 text-sm"
-                >
-                  <span className="muted w-4">{i + 1}</span>
-                  <Link
-                    href={`/l/${leagueId}/team/${row.team_id}`}
-                    className="min-w-0 flex-1 truncate hover:text-accent"
+              {top.map((row, i) => {
+                const inPlayoffs = makesPlayoffs(i, league.playoff_teams);
+                return (
+                  <li
+                    key={row.team_id}
+                    className="flex items-center gap-3 px-3 py-2 text-sm"
                   >
-                    {row.team_name}
-                  </Link>
-                  <span className="tabular-nums">
-                    {row.wins}-{row.losses}
-                    {row.ties > 0 && `-${row.ties}`}
-                  </span>
-                </li>
-              ))}
+                    <span className="flex w-5 shrink-0 items-center gap-1">
+                      <span
+                        aria-hidden="true"
+                        className={`size-1.5 rounded-full ${
+                          inPlayoffs ? "bg-positive" : "bg-transparent"
+                        }`}
+                      />
+                      <span
+                        className={`tabular-nums ${
+                          inPlayoffs ? "score text-positive" : "text-muted"
+                        }`}
+                      >
+                        {i + 1}
+                      </span>
+                    </span>
+                    <Link
+                      href={`/l/${leagueId}/team/${row.team_id}`}
+                      className="min-w-0 flex-1 truncate hover:text-accent"
+                    >
+                      {row.team_name}
+                    </Link>
+                    <span className="tabular-nums">
+                      {row.wins}-{row.losses}
+                      {row.ties > 0 && `-${row.ties}`}
+                    </span>
+                  </li>
+                );
+              })}
             </ol>
           )}
         </section>
@@ -175,6 +194,13 @@ function MatchupCard({
     );
   }
 
+  // On a final, dim the losing side's score; a tie (winner null) dims
+  // neither. matchupStatusLabel gives the same Scheduled/In progress/Final
+  // wording the matchup list and My Team preview use.
+  const winner = matchupWinner(matchup);
+  const awayLost = winner === "home";
+  const homeLost = winner === "away";
+
   return (
     <Link
       href={`/l/${leagueId}/matchups/${matchup.id}`}
@@ -183,16 +209,20 @@ function MatchupCard({
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm">{awayName}</p>
-          <p className="score text-3xl md:text-4xl">
+          <p
+            className={`score text-3xl md:text-4xl ${awayLost ? "text-muted" : ""}`}
+          >
             {Number(matchup.away_score).toFixed(1)}
           </p>
         </div>
         <span className="muted shrink-0 text-xs font-semibold tracking-wide uppercase">
-          {matchup.status === "final" ? "Final" : "vs"}
+          {matchupStatusLabel(matchup)}
         </span>
         <div className="min-w-0 flex-1 text-right">
           <p className="truncate text-sm">{homeName}</p>
-          <p className="score text-3xl md:text-4xl">
+          <p
+            className={`score text-3xl md:text-4xl ${homeLost ? "text-muted" : ""}`}
+          >
             {Number(matchup.home_score).toFixed(1)}
           </p>
         </div>
