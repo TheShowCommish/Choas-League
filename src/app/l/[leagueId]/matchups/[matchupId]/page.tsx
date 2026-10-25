@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { safeColor, tint } from "@/lib/colors";
+import {
+  headToHead,
+  type HeadToHeadMatchup,
+  type HeadToHeadSummary,
+} from "@/lib/head-to-head";
 import { getLeagueContext } from "@/lib/league";
 import {
   matchupWeekIndex,
@@ -79,7 +84,7 @@ export default async function MatchupPage({
   const coveredWeeks = matchupWeeks(matchup);
   const shownWeeks = view === "total" ? coveredWeeks : [view];
 
-  const [weekly, fetchedPoints] = await Promise.all([
+  const [weekly, fetchedPoints, h2hResult] = await Promise.all([
     Promise.all(
       shownWeeks.map(async (week): Promise<WeekRosters> => {
         const [homeRoster, awayRoster] = await Promise.all([
@@ -122,6 +127,23 @@ export default async function MatchupPage({
           }),
         )
       : Promise.resolve([]),
+    // This season's finalized meetings between the two teams, for the
+    // head-to-head series line (T-082). Scoped to league.season so a future
+    // season cannot double-count (BOARD T-052); both home/away orientations.
+    // A bye has no opponent, so there is nothing to tally. The current
+    // matchup is included once it is final, so a decided series counts itself.
+    away
+      ? supabase
+          .from("matchups")
+          .select("home_team_id,away_team_id,home_score,away_score,status")
+          .eq("league_id", leagueId)
+          .eq("season", league.season)
+          .eq("status", "final")
+          .or(
+            `and(home_team_id.eq.${home.id},away_team_id.eq.${away.id}),` +
+              `and(home_team_id.eq.${away.id},away_team_id.eq.${home.id})`,
+          )
+      : Promise.resolve({ data: [] }),
   ]);
 
   // Per-week points are all or nothing: one week missing would make the
@@ -196,6 +218,24 @@ export default async function MatchupPage({
   const winnerSide = matchupWinner(matchup);
   const homeWon = winnerSide === "home";
   const awayWon = winnerSide === "away";
+
+  // The all-time (this-season) series between the two teams, from the home
+  // team's side. Null for a bye -- there is no opponent to have a record with.
+  const series = away
+    ? headToHead(
+        home.id,
+        away.id,
+        ((h2hResult.data ?? []) as Matchup[]).map(
+          (m): HeadToHeadMatchup => ({
+            homeTeamId: m.home_team_id,
+            awayTeamId: m.away_team_id,
+            homeScore: Number(m.home_score),
+            awayScore: Number(m.away_score),
+            status: m.status,
+          }),
+        ),
+      )
+    : null;
 
   // One week picked: the header shows that week's points, and nobody
   // has won a single week of a matchup, so no side is marked the winner.
@@ -272,6 +312,18 @@ export default async function MatchupPage({
           />
         </div>
       </header>
+
+      {/*
+        The head-to-head series line (T-082): a quiet one-liner under the
+        scoreboard saying who leads the all-time (this-season) series. Minimal
+        markup on purpose -- a designer owns how this finally reads; this is
+        the value and where it lives. Omitted on a bye (no opponent).
+      */}
+      {series && away && (
+        <p data-h2h className="muted text-sm" aria-label="Head-to-head series">
+          {seriesLabel(series, home, away)}
+        </p>
+      )}
 
       {/*
         A plain live-projection strip (T-071). Projected final per side, how
@@ -380,6 +432,37 @@ export default async function MatchupPage({
       })}
     </div>
   );
+}
+
+/**
+ * The head-to-head series line (T-082), from the home team's side:
+ * "First meeting this season" before they have met, "Series tied 1-1" when
+ * level, otherwise "Series: NAME leads 2-1". Drawn games, if any, trail as
+ * "(1 tie)". Season-scoped for now (see head-to-head.ts); a future
+ * multi-season view would widen the source and this copy. Minimal copy on
+ * purpose -- a designer owns how this reads.
+ */
+function seriesLabel(
+  series: HeadToHeadSummary,
+  home: Team,
+  away: Team,
+): string {
+  if (series.leader === "none") return "First meeting this season";
+
+  const ties =
+    series.ties > 0
+      ? ` (${series.ties} tie${series.ties > 1 ? "s" : ""})`
+      : "";
+
+  if (series.leader === "tied") {
+    return `Series tied ${series.teamAWins}-${series.teamBWins}${ties}`;
+  }
+
+  const [name, lead, trail] =
+    series.leader === "a"
+      ? [home.name, series.teamAWins, series.teamBWins]
+      : [away.name, series.teamBWins, series.teamAWins];
+  return `Series: ${name} leads ${lead}-${trail}${ties}`;
 }
 
 /**
