@@ -9,6 +9,12 @@ import {
   matchupWinner,
   parseMatchupView,
 } from "@/lib/matchup-weeks";
+import {
+  projectMatchup,
+  type MatchupProjection,
+  type SideProjection,
+  type StarterProjectionInput,
+} from "@/lib/matchup-projection";
 import { getTeamRoster, type RosterEntry } from "@/lib/roster";
 import { createClient } from "@/lib/supabase/server";
 import { expandSlots, positionLabel } from "@/lib/roster-slots";
@@ -128,6 +134,63 @@ export default async function MatchupPage({
   // One row per individual starting spot: a 2-RB league gets two RB rows.
   const starterSpots = expandSlots(rosterSlots).filter((s) => s.isStarter);
 
+  // A live projection of where the shown weeks are heading. Each starter
+  // whose game is final counts his real points; everyone else counts his
+  // weekly projection, scored in this league's rules (team_projections,
+  // 0028). Projections are fetched per team-week and keyed by player; a
+  // bye, a missing projection, or a failed call simply counts as zero, so
+  // a projected final still reconciles to the real final once every game
+  // is final (every starter is then on his actual points).
+  const starterSlotKeys = new Set(
+    rosterSlots.filter((s) => s.is_starter).map((s) => s.slot_key),
+  );
+  const projTeams = [home, away].filter((t): t is Team => t !== null);
+
+  const projByTeamWeek = new Map<string, Map<string, number>>();
+  await Promise.all(
+    shownWeeks.flatMap((week) =>
+      projTeams.map(async (team) => {
+        const { data: rows, error } = await supabase.rpc("team_projections", {
+          p_league: leagueId,
+          p_team: team.id,
+          p_season: league.season,
+          p_week: week,
+        });
+        if (error) return;
+        projByTeamWeek.set(
+          `${team.id}:${week}`,
+          new Map(
+            ((rows ?? []) as { player_id: string; points: number }[]).map(
+              (r) => [r.player_id, Number(r.points)],
+            ),
+          ),
+        );
+      }),
+    ),
+  );
+
+  // Starters across every shown week, flattened into one list per side:
+  // projectMatchup's numbers are additive sums over starters, so a
+  // multi-week total is just all its weeks' starters together.
+  const homeStarters: StarterProjectionInput[] = [];
+  const awayStarters: StarterProjectionInput[] = [];
+  for (const rosters of weekly) {
+    const homeProj = projByTeamWeek.get(`${home.id}:${rosters.week}`);
+    for (const entry of startersOf(rosters.home, starterSlotKeys)) {
+      homeStarters.push(starterInput(entry, homeProj));
+    }
+    if (away) {
+      const awayProj = projByTeamWeek.get(`${away.id}:${rosters.week}`);
+      for (const entry of startersOf(rosters.away, starterSlotKeys)) {
+        awayStarters.push(starterInput(entry, awayProj));
+      }
+    }
+  }
+  const projection = projectMatchup(
+    homeStarters,
+    away ? awayStarters : null,
+  );
+
   const isFinal = matchup.status === "final";
   // Neither side wins a tie.
   const winnerSide = matchupWinner(matchup);
@@ -209,6 +272,17 @@ export default async function MatchupPage({
           />
         </div>
       </header>
+
+      {/*
+        A plain live-projection strip (T-071). Projected final per side, how
+        many starters are still to play and the points they are projected to
+        add, and the projected margin. Only shown while the matchup is live --
+        once final the projection equals the real score. Minimal markup on
+        purpose: a designer owns how this finally reads; these are the values.
+      */}
+      {!isFinal && (
+        <ProjectionStrip projection={projection} home={home} away={away} />
+      )}
 
       {/*
         Sticky just under the scoreboard, so the week can be changed from
@@ -600,6 +674,164 @@ function ScoreHalf({
       </p>
     </div>
   );
+}
+
+/** This week's starters: roster entries sitting in a starting slot. */
+function startersOf(
+  roster: RosterEntry[],
+  starterSlotKeys: Set<string>,
+): RosterEntry[] {
+  return roster.filter(
+    (entry) => entry.slotKey !== null && starterSlotKeys.has(entry.slotKey),
+  );
+}
+
+/**
+ * One starter reduced to what projectMatchup needs: his actual points, his
+ * projection (0 when absent), and his game's status (null on a bye).
+ */
+function starterInput(
+  entry: RosterEntry,
+  projByPlayer: Map<string, number> | undefined,
+): StarterProjectionInput {
+  return {
+    actual: entry.points,
+    projected: projByPlayer?.get(entry.playerId) ?? 0,
+    status: entry.game?.status ?? null,
+  };
+}
+
+/**
+ * The live projection, under the live scoreboard (T-071).
+ *
+ * Reads as the quieter echo of the big score above it: a "PROJECTED" label
+ * so the smaller numbers are never mistaken for the live ones, each side's
+ * projected final with what it still has to come, an accent chip saying who
+ * is projected to win by how much, and a two-colour bar splitting the
+ * projected points between the sides -- away on the left, home on the right,
+ * so it lines up with the scoreboard halves. Hidden once the matchup is final.
+ */
+function ProjectionStrip({
+  projection,
+  home,
+  away,
+}: {
+  projection: MatchupProjection;
+  home: Team;
+  away: Team | null;
+}) {
+  const { margin } = projection;
+
+  // A bye week has no opponent: show just this side's projected final, with
+  // no who-wins chip or split bar to draw.
+  if (!away) {
+    return (
+      <section className="card-tight px-3 py-2.5" aria-label="Projected final">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+            Projected
+          </span>
+          <div className="text-right">
+            <span className="score block text-2xl leading-none text-foreground">
+              {projection.home.projFinal.toFixed(1)}
+            </span>
+            <span className="muted mt-0.5 block text-xs leading-snug">
+              {toPlayLabel(projection.home)}
+            </span>
+          </div>
+        </div>
+      </section>
+    );
+  }
+
+  const leader = margin > 0 ? home : margin < 0 ? away : null;
+  const lead = Math.abs(margin);
+
+  // Each side's share of the projected points, for the split bar. Before any
+  // projections land the total is 0; split it evenly rather than divide by 0.
+  const total = projection.home.projFinal + projection.away.projFinal;
+  const homeShare = total > 0 ? (projection.home.projFinal / total) * 100 : 50;
+  const awayShare = 100 - homeShare;
+
+  return (
+    <section className="card-tight overflow-hidden" aria-label="Projected final">
+      {/* Label on the left, the verdict on the right: who is projected to win,
+          in the accent colour so it reads as a call rather than an alarm. */}
+      <div className="flex items-center justify-between gap-2 px-3 pt-2.5">
+        <span className="text-[11px] font-semibold tracking-[0.08em] text-muted uppercase">
+          Projected
+        </span>
+        {leader ? (
+          <span className="inline-flex items-center rounded-full border border-accent/40 bg-accent/10 px-2 py-0.5 text-xs font-semibold tabular-nums text-accent">
+            {leader.abbreviation} by {lead.toFixed(1)}
+          </span>
+        ) : (
+          <span className="muted text-xs font-medium">Dead even</span>
+        )}
+      </div>
+
+      {/* Projected finals, lined up under the live score above: away left,
+          home right. Smaller than the scoreboard so they stay the echo. */}
+      <div className="flex items-end justify-between gap-3 px-3 pt-1 pb-2.5">
+        <ProjectionSide team={away} side={projection.away} align="left" />
+        <ProjectionSide team={home} side={projection.home} align="right" />
+      </div>
+
+      {/* The projected points, split between the sides in their own colours.
+          A footer strip, not a win-probability -- it is the two projected
+          finals drawn to scale. */}
+      <div
+        className="flex h-1.5 w-full overflow-hidden"
+        role="img"
+        aria-label={`Projected points: ${away.abbreviation} ${projection.away.projFinal.toFixed(1)}, ${home.abbreviation} ${projection.home.projFinal.toFixed(1)}`}
+      >
+        <div style={{ width: `${awayShare}%`, background: safeColor(away.color) }} />
+        <div style={{ width: `${homeShare}%`, background: safeColor(home.color) }} />
+      </div>
+    </section>
+  );
+}
+
+/** One side of the projection strip: projected final, then what is left. */
+function ProjectionSide({
+  team,
+  side,
+  align,
+}: {
+  team: Team | null;
+  side: SideProjection;
+  align: "left" | "right";
+}) {
+  if (!team) return <div className="min-w-0 flex-1" aria-hidden />;
+
+  const right = align === "right";
+
+  return (
+    <div className={`min-w-0 flex-1 ${right ? "text-right" : ""}`}>
+      <span className="score block text-2xl leading-none text-foreground">
+        {side.projFinal.toFixed(1)}
+      </span>
+      <span className="muted mt-0.5 block text-xs leading-snug">
+        {toPlayLabel(side)}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * What a side still has coming, from the same numbers. "Yet to play" counts
+ * only starters who have not kicked off; "to come" is every unfinished
+ * starter's projection, so a side with games in progress but none left to
+ * start reads "in play" rather than the wrong "all played".
+ */
+function toPlayLabel(side: SideProjection): string {
+  if (side.yetToPlay > 0) {
+    return `${side.yetToPlay} to play · ${side.remaining.toFixed(1)} to come`;
+  }
+  if (side.remaining > 0) {
+    return `in play · ${side.remaining.toFixed(1)} to come`;
+  }
+  return "all played";
 }
 
 function groupBySlot(roster: RosterEntry[]) {
