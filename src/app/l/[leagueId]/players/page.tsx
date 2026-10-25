@@ -4,12 +4,13 @@ import { getTeamRoster } from "@/lib/roster";
 import { createClient } from "@/lib/supabase/server";
 import { positionLabel } from "@/lib/roster-slots";
 import type { Team, WaiverClaim } from "@/lib/types";
-import { FreeAgentCrest, NflCrest } from "../nfl-crest";
-import { TeamCrest } from "../team-theme";
+import { NflCrest } from "../nfl-crest";
 import { PlayerFilters } from "./filters";
 import { PlayerActions } from "./player-actions";
 import { PendingClaims } from "./pending-claims";
+import { AvailabilityChip, Headshot } from "./player-bits";
 import { SortHeader } from "./sortable";
+import { WaiverFab, type AddablePlayer } from "./waiver-fab";
 
 const PAGE_SIZE = 50;
 
@@ -102,13 +103,29 @@ export default async function PlayersPage({
     label: `${r.player.full_name} (${positionLabel(r.player.position)})`,
   }));
 
-  // Crests for the owner column: the pool RPC returns the owning team's
-  // id and name, and the league context already has the rest.
+  // Crests for the availability chip: the pool RPC returns the owning
+  // team's id and name, and the league context already has the rest.
   const teamById = new Map(teams.map((t) => [t.id, t] as const));
+  const ownerTeam = (row: PoolRow): Team | null =>
+    row.owner_team_id ? (teamById.get(row.owner_team_id) ?? null) : null;
 
   const pendingClaims = (claims ?? []) as WaiverClaim[];
   const playerNames = new Map(rows.map((r) => [r.player_id, r.full_name]));
   for (const r of myRoster) playerNames.set(r.playerId, r.player.full_name);
+
+  // The phone's Add sheet lists the players you can actually act on.
+  const addable: AddablePlayer[] = myTeam
+    ? rows
+        .filter((r) => !r.owner_team_id)
+        .map((r) => ({
+          player_id: r.player_id,
+          full_name: r.full_name,
+          pos: r.pos,
+          team_abbr: r.team_abbr,
+          on_waivers: r.on_waivers,
+          headshot_url: r.headshot_url,
+        }))
+    : [];
 
   return (
     <div className="space-y-5">
@@ -145,160 +162,180 @@ export default async function PlayersPage({
         {pageCount > 1 && ` · page ${page} of ${pageCount}`}
       </p>
 
-      <div className="card-tight table-scroll">
-        <table className="table">
-          <thead>
-            {/*
-              Only the three number columns sort. The other five sorted
-              the whole pool of several thousand by a field nobody
-              actually wants ranked -- surname, or which NFL club a man
-              plays for -- and the round trip that took was the price of
-              a mis-click. What people sort by is production.
-            */}
-            <tr>
-              <th>Player</th>
-              <th>Pos</th>
-              <th>Team</th>
-              <th>Status</th>
-              <th>Next</th>
-              <SortHeader column="last" label="Last" className="text-right" />
-              <SortHeader column="average" label="Avg" className="text-right" />
-              <SortHeader column="points" label="Total" className="text-right" />
-              <th className="w-24" />
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 && (
-              <tr>
-                <td colSpan={9} className="muted py-6 text-center">
-                  No players match those filters.
-                </td>
-              </tr>
-            )}
+      {rows.length === 0 ? (
+        <div className="card-tight p-6">
+          <p className="muted text-center">No players match those filters.</p>
+        </div>
+      ) : (
+        <>
+          {/* Desktop: the dense, sortable, full-width table. */}
+          <div className="card-tight table-scroll hidden md:block">
+            <table className="table">
+              {/*
+                Only the three number columns sort. The other five sorted
+                the whole pool by a field nobody wants ranked -- surname,
+                or which NFL club a man plays for. What people sort by is
+                production.
+              */}
+              <thead>
+                <tr>
+                  <th>Player</th>
+                  <th>Pos</th>
+                  <th>Team</th>
+                  <th>Availability</th>
+                  <th>Next</th>
+                  <SortHeader column="last" label="Last" className="text-right" />
+                  <SortHeader column="average" label="Avg" className="text-right" />
+                  <SortHeader column="points" label="Total" className="text-right" />
+                  <th className="w-20" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.player_id}>
+                    <td>
+                      <Link
+                        href={`/l/${leagueId}/players/${row.player_id}`}
+                        className="flex items-center gap-2.5 font-medium hover:text-accent"
+                      >
+                        <Headshot
+                          url={row.headshot_url}
+                          name={row.full_name}
+                          size={28}
+                        />
+                        <span className="truncate">{row.full_name}</span>
+                      </Link>
+                    </td>
 
+                    <td className="text-xs">{positionLabel(row.pos)}</td>
+
+                    <td className="text-xs">
+                      <span className="flex items-center gap-1.5">
+                        <NflCrest abbr={row.team_abbr} />
+                        <span>{row.team_abbr ?? "FA"}</span>
+                      </span>
+                    </td>
+
+                    <td className="text-xs">
+                      <AvailabilityChip
+                        team={ownerTeam(row)}
+                        ownerName={row.owner_team_name}
+                        onWaivers={row.on_waivers}
+                      />
+                    </td>
+
+                    <td className="whitespace-nowrap text-xs">
+                      <NextGame
+                        opponent={row.next_opponent}
+                        kickoff={row.next_kickoff}
+                        isHome={row.next_is_home}
+                      />
+                    </td>
+
+                    <td className="text-right">
+                      <span className="score">
+                        {Number(row.last_points).toFixed(1)}
+                      </span>
+                    </td>
+                    <td className="text-right">
+                      <span className="score">
+                        {Number(row.avg_points).toFixed(1)}
+                      </span>
+                    </td>
+                    <td className="text-right">
+                      <span className="score">
+                        {Number(row.total_points).toFixed(1)}
+                      </span>
+                    </td>
+
+                    <td className="text-right">
+                      {myTeam && !row.owner_team_id && (
+                        <PlayerActions
+                          leagueId={leagueId}
+                          teamId={myTeam.id}
+                          playerId={row.player_id}
+                          playerName={row.full_name}
+                          onWaivers={row.on_waivers}
+                          waiverType={league.waiver_type}
+                          faabRemaining={myTeam.faab_remaining}
+                          dropOptions={dropOptions}
+                        />
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile: a card per player. Read-first -- tap through to the
+              player page; adding is the FAB's job. */}
+          <ul className="space-y-2 md:hidden">
             {rows.map((row) => (
-              <tr key={row.player_id}>
-                <td>
-                  <Link
-                    href={`/l/${leagueId}/players/${row.player_id}`}
-                    className="block font-medium hover:text-accent"
-                  >
-                    {row.full_name}
-                  </Link>
-                </td>
+              <li key={row.player_id}>
+                <Link
+                  href={`/l/${leagueId}/players/${row.player_id}`}
+                  className="card-tight flex items-center gap-3 p-3"
+                >
+                  <Headshot url={row.headshot_url} name={row.full_name} size={40} />
 
-                <td className="text-xs">{positionLabel(row.pos)}</td>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{row.full_name}</p>
+                    <p className="muted truncate text-xs">
+                      {positionLabel(row.pos)}
+                      {row.team_abbr ? ` · ${row.team_abbr}` : ""}
+                      {" · "}
+                      {row.next_opponent
+                        ? `${row.next_is_home ? "vs" : "@"} ${row.next_opponent}`
+                        : "BYE"}
+                    </p>
+                    <div className="mt-1.5">
+                      <AvailabilityChip
+                        team={ownerTeam(row)}
+                        ownerName={row.owner_team_name}
+                        onWaivers={row.on_waivers}
+                      />
+                    </div>
+                  </div>
 
-                <td className="text-xs">
-                  <span className="flex items-center gap-1.5">
-                    <NflCrest abbr={row.team_abbr} />
-                    <span>{row.team_abbr ?? "FA"}</span>
-                  </span>
-                </td>
-
-                <td className="text-xs">
-                  <OwnerCell
-                    team={
-                      row.owner_team_id
-                        ? (teamById.get(row.owner_team_id) ?? null)
-                        : null
-                    }
-                    ownerName={row.owner_team_name}
-                    onWaivers={row.on_waivers}
-                  />
-                </td>
-
-                <td className="whitespace-nowrap text-xs">
-                  <NextGame
-                    opponent={row.next_opponent}
-                    kickoff={row.next_kickoff}
-                    isHome={row.next_is_home}
-                  />
-                </td>
-
-                <td className="text-right tabular-nums">
-                  {Number(row.last_points).toFixed(1)}
-                </td>
-                <td className="text-right tabular-nums">
-                  {Number(row.avg_points).toFixed(1)}
-                </td>
-                <td className="text-right tabular-nums">
-                  {Number(row.total_points).toFixed(1)}
-                </td>
-
-                <td>
-                  {myTeam && !row.owner_team_id && (
-                    <PlayerActions
-                      leagueId={leagueId}
-                      teamId={myTeam.id}
-                      playerId={row.player_id}
-                      playerName={row.full_name}
-                      onWaivers={row.on_waivers}
-                      waiverType={league.waiver_type}
-                      faabRemaining={myTeam.faab_remaining}
-                      dropOptions={dropOptions}
-                    />
-                  )}
-                </td>
-              </tr>
+                  <div className="flex shrink-0 gap-3 text-right">
+                    <Stat label="Avg" value={row.avg_points} />
+                    <Stat label="Total" value={row.total_points} />
+                  </div>
+                </Link>
+              </li>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </ul>
+        </>
+      )}
 
       <Pagination page={page} pageCount={pageCount} searchParams={sp} />
+
+      {myTeam && (
+        <WaiverFab
+          leagueId={leagueId}
+          teamId={myTeam.id}
+          waiverType={league.waiver_type}
+          faabRemaining={myTeam.faab_remaining}
+          dropOptions={dropOptions}
+          players={addable}
+        />
+      )}
     </div>
   );
 }
 
-/**
- * Who owns him: the fantasy club's crest and name, or the badge that
- * says nobody does.
- *
- * The crest is the point of the column. Scanning a page of fifty for
- * "is this one already gone" reads far faster off a shape and a colour
- * than off eleven team names in the same grey.
- */
-function OwnerCell({
-  team,
-  ownerName,
-  onWaivers,
-}: {
-  team: Team | null;
-  ownerName: string | null;
-  onWaivers: boolean;
-}) {
-  if (team) {
-    return (
-      <span className="flex items-center gap-1.5">
-        <TeamCrest
-          logoUrl={team.logo_url}
-          abbreviation={team.abbreviation}
-          name={team.name}
-          color={team.color}
-          secondary={team.secondary_color}
-          size={20}
-        />
-        <span className="truncate text-muted">{team.name}</span>
-      </span>
-    );
-  }
-
-  // A team the context could not resolve -- removed mid-season, say.
-  if (ownerName) {
-    return <span className="text-muted">{ownerName}</span>;
-  }
-
+/** One stacked number on a mobile card: the figure over its label. */
+function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <span className="flex items-center gap-1.5">
-      <FreeAgentCrest
-        label={onWaivers ? "W" : "FA"}
-        title={onWaivers ? "On waivers" : "Free agent"}
-      />
-      <span className={onWaivers ? "text-negative" : "text-positive"}>
-        {onWaivers ? "Waivers" : "Free agent"}
-      </span>
-    </span>
+    <div>
+      <div className="score text-lg leading-none">
+        {Number(value).toFixed(1)}
+      </div>
+      <div className="text-[10px] tracking-wide text-muted uppercase">
+        {label}
+      </div>
+    </div>
   );
 }
 
@@ -357,7 +394,7 @@ function Pagination({
   return (
     <nav className="flex items-center justify-between gap-3">
       {page > 1 ? (
-        <Link href={href(page - 1)} className="btn btn-sm">
+        <Link href={href(page - 1)} className="btn">
           &larr; Previous
         </Link>
       ) : (
@@ -367,7 +404,7 @@ function Pagination({
         {page} / {pageCount}
       </span>
       {page < pageCount ? (
-        <Link href={href(page + 1)} className="btn btn-sm">
+        <Link href={href(page + 1)} className="btn">
           Next &rarr;
         </Link>
       ) : (
