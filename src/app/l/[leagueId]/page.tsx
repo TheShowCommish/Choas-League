@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { getLeagueContext } from "@/lib/league";
 import { fetchMatchupsCoveringWeek, matchupWinner } from "@/lib/matchup-weeks";
+import { getTeamRoster } from "@/lib/roster";
+import { lineupHealth, startersFromRoster } from "@/lib/roster-health";
 import { makesPlayoffs } from "@/lib/standings-order";
 import { createClient } from "@/lib/supabase/server";
 import type { Matchup, StandingsRow, Transaction } from "@/lib/types";
+import { LineupHealthBanner } from "./lineup-health";
 import { matchupStatusLabel } from "./matchups/matchup-card";
 import { WeeksBadge } from "./matchups/weeks-badge";
 
@@ -13,11 +16,11 @@ export default async function LeagueHomePage({
   params: Promise<{ leagueId: string }>;
 }) {
   const { leagueId } = await params;
-  const { league, teams, myTeam, isCommissioner } =
+  const { league, teams, myTeam, rosterSlots, isCommissioner } =
     await getLeagueContext(leagueId);
   const supabase = await createClient();
 
-  const [matchups, { data: standings }, { data: activity }] =
+  const [matchups, { data: standings }, { data: activity }, ownRoster] =
     await Promise.all([
       fetchMatchupsCoveringWeek(supabase, {
         leagueId,
@@ -33,12 +36,32 @@ export default async function LeagueHomePage({
         .eq("league_id", leagueId)
         .order("created_at", { ascending: false })
         .limit(8),
+      myTeam
+        ? getTeamRoster(
+            leagueId,
+            myTeam.id,
+            league.season,
+            league.current_week,
+          )
+        : Promise.resolve(null),
     ]);
 
   const teamById = new Map(teams.map((t) => [t.id, t]));
   const myMatchup = matchups.find(
     (m) => m.home_team_id === myTeam?.id || m.away_team_id === myTeam?.id,
   );
+
+  // Roster-health nudge (T-075): the viewer's own current-week starters,
+  // only for a team that has players and while the week can still be
+  // changed (not everyone locked at kickoff). My Team shows the full
+  // list; here it is a one-line link.
+  let health = null;
+  if (ownRoster && ownRoster.length > 0) {
+    const allLocked = ownRoster.every((entry) => entry.locked);
+    if (!allLocked) {
+      health = lineupHealth(startersFromRoster(ownRoster, rosterSlots));
+    }
+  }
 
   const top = ((standings ?? []) as StandingsRow[])
     .sort(
@@ -49,6 +72,10 @@ export default async function LeagueHomePage({
 
   return (
     <div className="space-y-5">
+      {health && (
+        <LineupHealthBanner health={health} leagueId={leagueId} compact />
+      )}
+
       {league.status === "setup" && isCommissioner && (
         <div className="card border-accent">
           <h2 className="h2 mb-1">Finish setting up</h2>

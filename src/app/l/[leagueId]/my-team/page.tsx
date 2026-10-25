@@ -4,7 +4,9 @@ import { fetchMatchupsCoveringWeek, matchupWinner } from "@/lib/matchup-weeks";
 import { createClient } from "@/lib/supabase/server";
 import { getTeamRoster } from "@/lib/roster";
 import { byPosition, positionLabel } from "@/lib/roster-slots";
+import { lineupHealth, startersFromRoster } from "@/lib/roster-health";
 import type { Matchup, StandingsRow, Team } from "@/lib/types";
+import { LineupHealthBanner } from "../lineup-health";
 import { LineupEditor } from "./editor";
 import { TeamSettings } from "./team-settings";
 import { matchupStatusLabel } from "../matchups/matchup-card";
@@ -92,6 +94,15 @@ export default async function MyTeamPage({
   const matchup = matchupRows[0] ?? null;
   const standings = (standingsRows ?? []) as StandingsRow[];
 
+  // Roster-health nudge (T-075): only for a week that can still be
+  // changed -- the current or a future week, and not one already fully
+  // locked at kickoff -- so a finished week doesn't nag.
+  const allLocked = roster.length > 0 && roster.every((entry) => entry.locked);
+  const health =
+    roster.length > 0 && week >= league.current_week && !allLocked
+      ? lineupHealth(startersFromRoster(roster, rosterSlots))
+      : null;
+
   return (
     <TeamTheme
       color={myTeam.color}
@@ -156,6 +167,8 @@ export default async function MyTeamPage({
         teams={teams}
         standings={standings}
       />
+
+      {health && <LineupHealthBanner health={health} leagueId={leagueId} />}
 
       {limits.length > 0 && (
         <div className="card flex flex-wrap gap-2">
