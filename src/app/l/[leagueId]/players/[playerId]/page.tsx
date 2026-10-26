@@ -232,6 +232,12 @@ export default async function PlayerPage({
                 <> &middot; available</>
               )}
             </p>
+            <Link
+              href={`/l/${leagueId}/compare?players=${playerId}`}
+              className="btn btn-sm mt-2"
+            >
+              Compare
+            </Link>
           </div>
         </div>
       </header>

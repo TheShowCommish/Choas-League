@@ -130,7 +130,12 @@ export default async function PlayersPage({
   return (
     <div className="space-y-5">
       <header>
-        <h1 className="h1">Players</h1>
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h1 className="h1">Players</h1>
+          <Link href={`/l/${leagueId}/compare`} className="btn btn-sm">
+            Compare players
+          </Link>
+        </div>
         <p className="muted">
           {league.waiver_type === "faab"
             ? `Blind FAAB bidding. You have $${myTeam?.faab_remaining ?? 0} left.`

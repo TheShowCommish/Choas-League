@@ -420,6 +420,15 @@ body {
     font-variant-numeric: tabular-nums;
   }
 
+  /* The leading value in a compare row -- the best number for that stat
+     across the two or three players. An accent chip: the hue, a faint
+     outline and the bold .score weight together, so the winner reads
+     without relying on colour alone. A tie or a lone player marks nobody
+     (see compare.ts), so this only ever sits on a single cell per row. */
+  .stat-lead {
+    @apply rounded-md border border-accent/40 bg-accent/10 text-accent;
+  }
+
   /* Wide tables scroll inside their own container so the page body never
      scrolls sideways on a phone. */
   .table-scroll {
