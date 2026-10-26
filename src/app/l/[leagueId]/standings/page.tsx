@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { getLeagueContext } from "@/lib/league";
 import { DEFAULT_SEEDING_TIEBREAKERS } from "@/lib/playoff-bracket";
+import { powerRankings, type TeamWeekScore } from "@/lib/power-rankings";
 import { makesPlayoffs, orderStandings } from "@/lib/standings-order";
 import { createClient } from "@/lib/supabase/server";
-import type { Profile, StandingsRow } from "@/lib/types";
+import type { Matchup, Profile, StandingsRow } from "@/lib/types";
 import { seedingTiebreakCaption } from "../seeding-copy";
 
 /**
@@ -48,13 +49,25 @@ export default async function StandingsPage({
   const { league, myTeam } = await getLeagueContext(leagueId);
   const supabase = await createClient();
 
-  const [{ data: rows }, { data: profiles }, { data: order }] =
+  const [{ data: rows }, { data: profiles }, { data: order }, { data: games }] =
     await Promise.all([
       supabase.from("standings").select("*").eq("league_id", leagueId),
       supabase.from("profiles").select("id, display_name"),
       // The league's own seeding order (0041), so the table and its
       // playoff line agree with the bracket that will be generated.
       supabase.rpc("league_standings_order", { p_league: leagueId }),
+      // Finalized single-week games feed the power ranking's recent form
+      // and all-play win% (see power-rankings.ts for why multi-week
+      // playoff rounds are excluded).
+      supabase
+        .from("matchups")
+        .select(
+          "week, week_count, status, home_team_id, away_team_id, home_score, away_score",
+        )
+        .eq("league_id", leagueId)
+        .eq("season", league.season)
+        .eq("status", "final")
+        .eq("week_count", 1),
     ]);
 
   const ownerName = new Map(
@@ -84,6 +97,40 @@ export default async function StandingsPage({
 
   const owner = (row: StandingsRow) =>
     row.owner_id ? (ownerName.get(row.owner_id) ?? "Unclaimed") : "Unclaimed";
+
+  // Power rankings: an opinion blended from season PF, recent form and
+  // all-play win%, kept separate from the official standings above. Each
+  // finalized single-week matchup gives both teams a per-week score.
+  const weekScores: TeamWeekScore[] = [];
+  for (const g of ((games ?? []) as Pick<
+    Matchup,
+    "week" | "home_team_id" | "away_team_id" | "home_score" | "away_score"
+  >[])) {
+    weekScores.push({
+      teamId: g.home_team_id,
+      week: g.week,
+      points: Number(g.home_score),
+    });
+    if (g.away_team_id !== null) {
+      weekScores.push({
+        teamId: g.away_team_id,
+        week: g.week,
+        points: Number(g.away_score),
+      });
+    }
+  }
+  const power = powerRankings(
+    standings.map((row) => ({
+      teamId: row.team_id,
+      pointsFor: Number(row.points_for),
+      gamesPlayed: Number(row.games_played),
+    })),
+    weekScores,
+  );
+  // The official seed (1-based) each team holds in the table above, so the
+  // power list can show how far its opinion departs from the real order.
+  const seedRank = new Map(standings.map((row, i) => [row.team_id, i + 1]));
+  const teamName = new Map(standings.map((row) => [row.team_id, row.team_name]));
 
   return (
     <div className="space-y-4">
@@ -259,6 +306,89 @@ export default async function StandingsPage({
               );
             })}
           </ul>
+
+          {/* Power rankings: a computed opinion, kept visually apart from
+              the official table above -- its own heading, a top rule, and
+              ranked cards (not a dense table) so the two never blur. The
+              vs-seed chip says how far the opinion departs from the real
+              order; green up, red down, muted even. */}
+          <section className="space-y-3 border-t border-border pt-4">
+            <div>
+              <h2 className="h2">Power Rankings</h2>
+              <p className="muted text-xs">
+                Our take &mdash; points, all-play record and recent form. Not
+                the official standings.
+              </p>
+            </div>
+            <ol className="space-y-2">
+              {power.map((p) => {
+                const delta = (seedRank.get(p.teamId) ?? p.rank) - p.rank;
+                const mine = p.teamId === myTeam?.id;
+                // How the power opinion departs from the official seed: a
+                // green rise, a red fall, or a muted dash when they agree.
+                const deltaChip =
+                  delta > 0
+                    ? {
+                        cls: "border-positive/40 bg-positive/10 text-positive",
+                        glyph: "▲",
+                        num: String(delta),
+                        label: `${delta} ${
+                          delta === 1 ? "spot" : "spots"
+                        } above official seed`,
+                      }
+                    : delta < 0
+                      ? {
+                          cls: "border-negative/40 bg-negative/10 text-negative",
+                          glyph: "▼",
+                          num: String(-delta),
+                          label: `${-delta} ${
+                            -delta === 1 ? "spot" : "spots"
+                          } below official seed`,
+                        }
+                      : {
+                          cls: "border-border bg-surface-2 text-muted",
+                          glyph: "—",
+                          num: "",
+                          label: "Even with official seed",
+                        };
+                return (
+                  <li
+                    key={p.teamId}
+                    className={`card-tight flex min-h-11 items-center gap-3 p-3 ${
+                      mine ? "bg-surface-2" : ""
+                    }`}
+                  >
+                    <span className="score w-7 shrink-0 text-center text-xl leading-none text-muted">
+                      {p.rank}
+                    </span>
+                    <Link
+                      href={`/l/${leagueId}/team/${p.teamId}`}
+                      className="min-w-0 flex-1 truncate font-medium hover:text-accent"
+                    >
+                      {teamName.get(p.teamId) ?? "Team"}
+                    </Link>
+                    <span
+                      className={`inline-flex shrink-0 items-center gap-0.5 rounded-full border px-2 py-0.5 text-xs font-semibold tabular-nums ${deltaChip.cls}`}
+                      aria-label={deltaChip.label}
+                    >
+                      <span aria-hidden="true">{deltaChip.glyph}</span>
+                      {deltaChip.num && (
+                        <span aria-hidden="true">{deltaChip.num}</span>
+                      )}
+                    </span>
+                    <span className="shrink-0 text-right">
+                      <span className="score block text-xl leading-none">
+                        {p.powerScore.toFixed(1)}
+                      </span>
+                      <span className="block text-[10px] tracking-wide text-muted uppercase">
+                        PWR
+                      </span>
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
         </>
       )}
     </div>
