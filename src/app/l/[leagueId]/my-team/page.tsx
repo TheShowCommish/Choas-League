@@ -5,9 +5,12 @@ import { createClient } from "@/lib/supabase/server";
 import { getTeamRoster } from "@/lib/roster";
 import { byPosition, positionLabel } from "@/lib/roster-slots";
 import { lineupHealth, startersFromRoster } from "@/lib/roster-health";
+import { rankDefenses, type DefenseRank } from "@/lib/defense-vs-position";
+import { fetchFacingRowsByPosition } from "@/lib/defense-vs-position-server";
 import type { Matchup, StandingsRow, Team } from "@/lib/types";
 import { LineupHealthBanner } from "../lineup-health";
 import { LineupEditor } from "./editor";
+import { MatchupRatings, type StarterRating } from "./matchup-ratings";
 import { TeamSettings } from "./team-settings";
 import { matchupStatusLabel } from "../matchups/matchup-card";
 import { WeeksBadge } from "../matchups/weeks-badge";
@@ -46,22 +49,47 @@ export default async function MyTeamPage({
 
   const supabase = await createClient();
 
+  // Opponent matchup ratings (T-089): the distinct positions actually
+  // starting, so the one consolidated defense-vs-position read (below)
+  // pulls only the grain the ranking needs.
+  const starterSlotKeys = new Set(
+    rosterSlots.filter((s) => s.is_starter).map((s) => s.slot_key),
+  );
+  const starters = roster.filter(
+    (e) => e.slotKey !== null && starterSlotKeys.has(e.slotKey),
+  );
+  const starterPositions = [
+    ...new Set(
+      starters
+        .map((e) => e.player.position)
+        .filter((p): p is string => p !== null),
+    ),
+  ];
+
   // Position limits count the whole roster, bench and IR included, so
-  // the summary has to be about the roster rather than the lineup.
-  const [{ data: limitRows }, matchupRows, { data: standingsRows }] =
-    await Promise.all([
-      supabase
-        .from("league_position_limits")
-        .select("position, max_count")
-        .eq("league_id", leagueId),
-      fetchMatchupsCoveringWeek(supabase, {
-        leagueId,
-        season: league.season,
-        week,
-        teamId: myTeam.id,
-      }),
-      supabase.from("standings").select("*").eq("league_id", leagueId),
-    ]);
+  // the summary has to be about the roster rather than the lineup. The
+  // defense-vs-position read rides along in the same wave so the ratings
+  // overlap the roster/limits/matchup/standings loads rather than trailing
+  // them in a second serial round-trip.
+  const [
+    { data: limitRows },
+    matchupRows,
+    { data: standingsRows },
+    facingByPosition,
+  ] = await Promise.all([
+    supabase
+      .from("league_position_limits")
+      .select("position, max_count")
+      .eq("league_id", leagueId),
+    fetchMatchupsCoveringWeek(supabase, {
+      leagueId,
+      season: league.season,
+      week,
+      teamId: myTeam.id,
+    }),
+    supabase.from("standings").select("*").eq("league_id", leagueId),
+    fetchFacingRowsByPosition(leagueId, league.season, starterPositions),
+  ]);
 
   // A dropped player locked into this week's lineup is drawn on the
   // board but is not held any more, so he counts against neither the
@@ -102,6 +130,39 @@ export default async function MyTeamPage({
     roster.length > 0 && week >= league.current_week && !allLocked
       ? lineupHealth(startersFromRoster(roster, rosterSlots))
       : null;
+
+  // Opponent matchup ratings (T-089): for each starter, how the defense he
+  // faces this week fares against his position, season to date. Rank every
+  // defense once per position (not once per starter) and look each
+  // starter's opponent up from that.
+  const ranksByPosition = new Map<string, DefenseRank[]>(
+    starterPositions.map(
+      (pos) => [pos, rankDefenses(facingByPosition.get(pos) ?? [])] as const,
+    ),
+  );
+  const ratings: StarterRating[] = starters.map((entry) => {
+    const position = entry.player.position;
+    const teamAbbr = entry.player.team_abbr;
+    const opponent =
+      entry.game && teamAbbr
+        ? entry.game.home_team === teamAbbr
+          ? entry.game.away_team
+          : entry.game.home_team
+        : null;
+    const rank =
+      position && opponent
+        ? ranksByPosition.get(position)?.find((e) => e.team === opponent) ??
+          null
+        : null;
+    return {
+      playerId: entry.playerId,
+      playerName: entry.player.full_name,
+      position: position ?? "",
+      opponent,
+      rank: rank?.rank ?? null,
+      teams: rank?.teams ?? null,
+    };
+  });
 
   return (
     <TeamTheme
@@ -201,16 +262,19 @@ export default async function MyTeamPage({
           </Link>
         </div>
       ) : (
-        <LineupEditor
-          leagueId={leagueId}
-          teamId={myTeam.id}
-          season={league.season}
-          week={week}
-          slots={rosterSlots}
-          roster={roster}
-          lockMode={league.lineup_lock_mode}
-          timeZone={league.timezone}
-        />
+        <>
+          <MatchupRatings leagueId={leagueId} ratings={ratings} />
+          <LineupEditor
+            leagueId={leagueId}
+            teamId={myTeam.id}
+            season={league.season}
+            week={week}
+            slots={rosterSlots}
+            roster={roster}
+            lockMode={league.lineup_lock_mode}
+            timeZone={league.timezone}
+          />
+        </>
       )}
     </TeamTheme>
   );
