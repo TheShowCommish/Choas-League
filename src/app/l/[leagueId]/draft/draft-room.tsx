@@ -85,6 +85,11 @@ export function DraftRoom({
   const [sort, setSort] = useState<PoolSort>("adp");
   const [strategy, setStrategy] = useState<AutodraftStrategy>(autodraftStrategy);
 
+  // Which panel the phone shows. Desktop (lg+) ignores this and lays all
+  // three columns out at once; below lg the room is a set of tabs that
+  // open to the board, so the first thing a manager sees is the draft.
+  const [tab, setTab] = useState<MobileTab>("board");
+
   /*
    * The queue is held locally so reordering and round changes feel
    * immediate; the server remains the authority.
@@ -376,6 +381,23 @@ export function DraftRoom({
 
   const rosterTeam = teamById.get(rosterTeamId) ?? null;
 
+  // Who the always-visible mobile "Draft" button would take: the top of
+  // the queue that is due this round, mirroring autopick's next-up. Lets
+  // a manager draft from any tab in one tap.
+  const nextUp = useMemo(
+    () =>
+      queue.find(
+        (q) => q.target_round === null || q.target_round <= currentRound,
+      ),
+    [queue, currentRound],
+  );
+
+  // One panel at a time on a phone; every panel stays mounted and is
+  // toggled with a class, so switching tabs never re-mounts the board or
+  // the pool and never disturbs PoolRow's memoisation. On lg+ the class
+  // resolves to lg:block, so all panels show in the grid as before.
+  const show = (t: MobileTab) => (tab === t ? "" : "hidden lg:block");
+
   return (
     <div className="space-y-4">
       <header className="card">
@@ -388,8 +410,12 @@ export function DraftRoom({
             </p>
           </div>
 
+          {/* The big header clock is the desktop one; on a phone the clock
+              lives in the sticky bar below so it rides along across tabs. */}
           {deadlineMs !== null && (
-            <DraftClock deadlineMs={deadlineMs} onExpire={handleClockExpire} />
+            <div className="hidden lg:block">
+              <DraftClock deadlineMs={deadlineMs} onExpire={handleClockExpire} />
+            </div>
           )}
         </div>
 
@@ -456,8 +482,117 @@ export function DraftRoom({
         {error && <p className="error-box mt-3">{error}</p>}
       </header>
 
+      {/*
+        Phone-only sticky controls (lg:hidden). The clock, who is on the
+        clock and a one-tap Draft action stay pinned above the tabs, so a
+        manager can draft from the Board, Players, Queue or Roster tab and
+        still watch the timer. Desktop never renders any of this.
+      */}
+      <div className="sticky top-0 z-20 -mx-4 space-y-2 bg-background px-4 pt-2 pb-2 lg:hidden">
+        <div className="card-tight flex items-center gap-3 px-3 py-2">
+          {deadlineMs !== null && (
+            <DraftClock
+              deadlineMs={deadlineMs}
+              onExpire={handleClockExpire}
+              className="text-2xl"
+            />
+          )}
+
+          <div className="min-w-0 flex-1">
+            {draft.status === "live" && currentPick ? (
+              <>
+                <p
+                  className={`truncate text-sm font-semibold ${
+                    isMyPick ? "text-accent" : ""
+                  }`}
+                >
+                  {isMyPick ? "You are on the clock" : (onTheClock?.name ?? "—")}
+                </p>
+                <p className="muted truncate text-xs">
+                  Pick {currentPick.pick_number} &middot; Rd {currentPick.round}
+                </p>
+              </>
+            ) : (
+              <p className="muted text-sm">
+                {draft.status === "complete"
+                  ? "Draft finished"
+                  : draft.status === "paused"
+                    ? "Draft paused"
+                    : "Not started yet"}
+              </p>
+            )}
+          </div>
+
+          {canPick && nextUp ? (
+            <button
+              type="button"
+              className="btn btn-primary shrink-0"
+              disabled={pending}
+              onClick={() => pick(nextUp.player_id, nextUp.full_name)}
+              title={`Draft ${nextUp.full_name}`}
+            >
+              Draft {nextUp.full_name.split(" ").slice(-1)[0]}
+            </button>
+          ) : canPick ? (
+            <button
+              type="button"
+              className="btn btn-primary shrink-0"
+              onClick={() => setTab("players")}
+            >
+              Pick
+            </button>
+          ) : null}
+        </div>
+
+        <div
+          className="segmented"
+          role="tablist"
+          aria-label="Draft room panels"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "board"}
+            className="segmented-item"
+            onClick={() => setTab("board")}
+          >
+            Board
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "players"}
+            className="segmented-item"
+            onClick={() => setTab("players")}
+          >
+            Players
+          </button>
+          {myTeamId && (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "queue"}
+              className="segmented-item"
+              onClick={() => setTab("queue")}
+            >
+              Queue
+            </button>
+          )}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "roster"}
+            className="segmented-item"
+            onClick={() => setTab("roster")}
+          >
+            Roster
+          </button>
+        </div>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-[16rem_1fr_23rem] 2xl:grid-cols-[18rem_1fr_26rem]">
         <DraftBoard
+          className={show("board")}
           picks={picks}
           teams={teams}
           playerById={playerById}
@@ -465,7 +600,7 @@ export function DraftRoom({
           myTeamId={myTeamId}
         />
 
-        <section className="space-y-3">
+        <section className={`space-y-3 ${show("players")}`}>
           <div className="card flex flex-wrap gap-2">
             <input
               className="input min-w-40 flex-1"
@@ -547,9 +682,14 @@ export function DraftRoom({
           </div>
         </section>
 
-        <aside className="space-y-4">
+        <aside
+          className={`space-y-4 ${
+            tab === "queue" || tab === "roster" ? "" : "hidden lg:block"
+          }`}
+        >
           {myTeamId && (
             <QueuePanel
+              className={show("queue")}
               queue={queue}
               rounds={draft.rounds}
               currentRound={currentRound}
@@ -566,6 +706,7 @@ export function DraftRoom({
           )}
 
           <RosterPanel
+            className={show("roster")}
             teams={teams}
             selectedTeamId={rosterTeamId}
             onSelectTeam={setRosterTeamId}
@@ -583,6 +724,9 @@ export function DraftRoom({
 
 /** What the pool can be ordered by. */
 type PoolSort = "adp" | "projection" | "points";
+
+/** The phone's one-at-a-time panels. Desktop shows all of them at once. */
+type MobileTab = "board" | "players" | "queue" | "roster";
 
 function ordinal(n: number): string {
   const rest = n % 100;
@@ -602,9 +746,12 @@ function ordinal(n: number): string {
 function DraftClock({
   deadlineMs,
   onExpire,
+  className = "text-3xl",
 }: {
   deadlineMs: number;
   onExpire: () => void;
+  /** Lets the mobile sticky bar render a smaller clock; desktop keeps 3xl. */
+  className?: string;
 }) {
   const [now, setNow] = useState(() => Date.now());
   const fired = useRef(false);
@@ -627,7 +774,7 @@ function DraftClock({
   return (
     <div
       suppressHydrationWarning
-      className={`text-3xl font-bold tabular-nums ${
+      className={`${className} font-bold tabular-nums ${
         secondsLeft <= 10 ? "text-negative" : ""
       }`}
     >
@@ -745,12 +892,14 @@ const PoolRow = memo(function PoolRow({
  * cannot follow anything.
  */
 function DraftBoard({
+  className = "",
   picks,
   teams,
   playerById,
   currentPickNumber,
   myTeamId,
 }: {
+  className?: string;
   picks: DraftPick[];
   teams: Team[];
   playerById: Map<string, PickedPlayer>;
@@ -788,7 +937,9 @@ function DraftBoard({
   const picksAway = myNext ? myNext.pick_number - currentPickNumber : null;
 
   return (
-    <section className="card-tight lg:sticky lg:top-4 lg:self-start">
+    <section
+      className={`card-tight lg:sticky lg:top-4 lg:self-start ${className}`}
+    >
       <div className="border-b border-border px-3 py-2">
         <h2 className="text-sm font-semibold">Board</h2>
         {picksAway !== null && (
@@ -893,6 +1044,7 @@ function DraftBoard({
  * room admitted it.
  */
 function QueuePanel({
+  className = "",
   queue,
   rounds,
   currentRound,
@@ -906,6 +1058,7 @@ function QueuePanel({
   onRound,
   onRemove,
 }: {
+  className?: string;
   queue: QueueEntry[];
   rounds: number;
   currentRound: number;
@@ -926,7 +1079,7 @@ function QueuePanel({
   );
 
   return (
-    <section className="card-tight">
+    <section className={`card-tight ${className}`}>
       <div className="space-y-2 border-b border-border px-3 py-2">
         <h2 className="text-sm font-semibold">Autodraft &amp; queue</h2>
 
@@ -1093,6 +1246,7 @@ function QueuePanel({
  * quarterbacks is worth knowing before you reach for your own.
  */
 function RosterPanel({
+  className = "",
   teams,
   selectedTeamId,
   onSelectTeam,
@@ -1102,6 +1256,7 @@ function RosterPanel({
   picks,
   playerById,
 }: {
+  className?: string;
   teams: Team[];
   selectedTeamId: string;
   onSelectTeam: (teamId: string) => void;
@@ -1168,7 +1323,7 @@ function RosterPanel({
   }, [picks, selectedTeamId, playerById, rosterSlots]);
 
   return (
-    <section className="card-tight">
+    <section className={`card-tight ${className}`}>
       <div className="space-y-2 border-b border-border px-3 py-2">
         <div className="flex items-baseline justify-between gap-2">
           <h2 className="text-sm font-semibold">

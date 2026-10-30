@@ -60,6 +60,12 @@ export function AuctionRoom({
   const [search, setSearch] = useState("");
   const [openingBid, setOpeningBid] = useState("1");
 
+  // Which panel the phone shows. Desktop (lg+) ignores this and stacks
+  // every section as before; below lg the room is a set of tabs that
+  // open to the floor, so the first thing a manager sees is the bidding.
+  const [tab, setTab] = useState<AuctionTab>("floor");
+  const show = (t: AuctionTab) => (tab === t ? "" : "hidden lg:block");
+
   const teamById = new Map(teams.map((t) => [t.id, t]));
 
   // Names for both halves of the room. Winning a lot is what takes a
@@ -160,7 +166,125 @@ export function AuctionRoom({
         {message && <p className="error-box mt-3">{message}</p>}
       </header>
 
-      {!isLive ? (
+      {/*
+        Phone-only sticky controls (lg:hidden). The clock, the player on
+        the block and a one-tap bid stay pinned above the tabs, so a
+        manager can bid from the Floor, Budgets or Sold tab and still
+        watch the timer. Desktop never renders any of this.
+      */}
+      <div className="sticky top-0 z-20 -mx-4 space-y-2 bg-background px-4 pt-2 pb-2 lg:hidden">
+        <div className="card-tight flex items-center gap-3 px-3 py-2">
+          {isLive && openLot ? (
+            <>
+              <LotClock
+                deadlineMs={
+                  openLot.closes_at
+                    ? new Date(openLot.closes_at).getTime()
+                    : null
+                }
+                onExpire={handleLotExpire}
+                className="text-2xl"
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold">
+                  {nameById.get(openLot.player_id) ?? openLot.player_id}
+                </p>
+                <p className="muted truncate text-xs">
+                  ${openLot.high_bid}
+                  {openLot.high_bidder_id && (
+                    <>
+                      {" "}
+                      &middot;{" "}
+                      {teamById.get(openLot.high_bidder_id)?.name ?? "?"}
+                    </>
+                  )}
+                </p>
+              </div>
+              {myTeamId &&
+              openLot.high_bidder_id !== myTeamId &&
+              maxBid > openLot.high_bid ? (
+                <button
+                  type="button"
+                  className="btn btn-primary shrink-0"
+                  disabled={pending}
+                  onClick={() =>
+                    run(() =>
+                      placeBid(
+                        leagueId,
+                        openLot.id,
+                        myTeamId!,
+                        openLot.high_bid + 1,
+                      ),
+                    )
+                  }
+                >
+                  ${openLot.high_bid + 1}
+                </button>
+              ) : openLot.high_bidder_id === myTeamId ? (
+                <span className="muted shrink-0 text-xs">High bid</span>
+              ) : null}
+            </>
+          ) : (
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold">
+                {!isLive
+                  ? draft.status === "complete"
+                    ? "Auction finished"
+                    : draft.status === "paused"
+                      ? "Auction paused"
+                      : "Not started yet"
+                  : nominatorId
+                    ? isMyNomination
+                      ? "Your nomination"
+                      : `Waiting on ${teamById.get(nominatorId)?.name ?? "someone"}`
+                    : "Nothing up for bid"}
+              </p>
+              {myTeamId && (
+                <p className="muted truncate text-xs">
+                  Your budget ${myBudget} &middot; max ${maxBid}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div
+          className="segmented"
+          role="tablist"
+          aria-label="Auction room panels"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "floor"}
+            className="segmented-item"
+            onClick={() => setTab("floor")}
+          >
+            Floor
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "budgets"}
+            className="segmented-item"
+            onClick={() => setTab("budgets")}
+          >
+            Budgets
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "sold"}
+            className="segmented-item"
+            onClick={() => setTab("sold")}
+          >
+            Sold
+          </button>
+        </div>
+      </div>
+
+      <div className={show("floor")}>
+        {!isLive ? (
         <p className="card ok-box">
           {draft.status === "complete"
             ? "The auction is finished."
@@ -258,9 +382,10 @@ export function AuctionRoom({
             </>
           )}
         </section>
-      )}
+        )}
+      </div>
 
-      <section className="card-tight">
+      <section className={`card-tight ${show("budgets")}`}>
         <h2 className="border-b border-border px-3 py-2 text-sm font-semibold">
           Budgets
         </h2>
@@ -293,7 +418,7 @@ export function AuctionRoom({
         </ul>
       </section>
 
-      <section className="card-tight">
+      <section className={`card-tight ${show("sold")}`}>
         <h2 className="border-b border-border px-3 py-2 text-sm font-semibold">
           Sold
         </h2>
@@ -316,6 +441,62 @@ export function AuctionRoom({
           </ul>
         )}
       </section>
+    </div>
+  );
+}
+
+/** The phone's one-at-a-time panels. Desktop shows all of them stacked. */
+type AuctionTab = "floor" | "budgets" | "sold";
+
+/**
+ * The lot clock, isolated.
+ *
+ * Its twice-a-second tick is state, so keeping it in this leaf -- rather
+ * than in the room -- means the tick re-renders one number and nothing
+ * else (the nomination list, the budgets and the sold board all sit
+ * still). `fired` keeps the expiry from firing on every zero-second
+ * tick; several instances or browsers racing the award is harmless
+ * because the RPC re-checks the deadline. The mobile sticky bar and the
+ * desktop LotCard each render one, so the clock rides along across tabs.
+ */
+function LotClock({
+  deadlineMs,
+  onExpire,
+  className = "text-4xl",
+}: {
+  deadlineMs: number | null;
+  onExpire: () => void;
+  /** Lets the mobile sticky bar render a smaller clock; the card keeps 4xl. */
+  className?: string;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const fired = useRef(false);
+
+  useEffect(() => {
+    fired.current = false;
+    if (deadlineMs === null) return;
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [deadlineMs]);
+
+  const secondsLeft =
+    deadlineMs === null ? null : Math.max(0, Math.ceil((deadlineMs - now) / 1000));
+
+  useEffect(() => {
+    if (secondsLeft === 0 && !fired.current) {
+      fired.current = true;
+      onExpire();
+    }
+  }, [secondsLeft, onExpire]);
+
+  return (
+    <div
+      suppressHydrationWarning
+      className={`${className} font-bold tabular-nums ${
+        (secondsLeft ?? 99) <= 5 ? "text-negative" : ""
+      }`}
+    >
+      {secondsLeft ?? "-"}
     </div>
   );
 }
@@ -343,29 +524,6 @@ function LotCard({
 }) {
   const [custom, setCustom] = useState("");
 
-  // The countdown is owned here so its twice-a-second tick re-renders
-  // this card alone. `fired` keeps the expiry from firing on every
-  // zero-second tick.
-  const [now, setNow] = useState(() => Date.now());
-  const fired = useRef(false);
-
-  useEffect(() => {
-    fired.current = false;
-    if (deadlineMs === null) return;
-    const id = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(id);
-  }, [deadlineMs]);
-
-  const secondsLeft =
-    deadlineMs === null ? null : Math.max(0, Math.ceil((deadlineMs - now) / 1000));
-
-  useEffect(() => {
-    if (secondsLeft === 0 && !fired.current) {
-      fired.current = true;
-      onExpire();
-    }
-  }, [secondsLeft, onExpire]);
-
   const increments = [1, 5, 10].map((step) => lot.high_bid + step);
 
   return (
@@ -379,14 +537,7 @@ function LotCard({
             {highBidderName && <> &middot; {highBidderName}</>}
           </p>
         </div>
-        <div
-          suppressHydrationWarning
-          className={`text-4xl font-bold tabular-nums ${
-            (secondsLeft ?? 99) <= 5 ? "text-negative" : ""
-          }`}
-        >
-          {secondsLeft ?? "-"}
-        </div>
+        <LotClock deadlineMs={deadlineMs} onExpire={onExpire} />
       </div>
 
       {canBid ? (
