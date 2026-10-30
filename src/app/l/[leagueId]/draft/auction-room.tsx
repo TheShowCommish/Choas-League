@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import type { Draft, DraftPick, Team } from "@/lib/types";
@@ -102,27 +102,16 @@ export function AuctionRoom({
   }, [draft.id, router]);
 
   // --- the clock ------------------------------------------------------
-  const deadlineMs =
-    isLive && openLot?.closes_at ? new Date(openLot.closes_at).getTime() : null;
-
-  const [now, setNow] = useState(() => Date.now());
-
-  useEffect(() => {
-    if (deadlineMs === null) return;
-    const id = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(id);
-  }, [deadlineMs]);
-
-  const secondsLeft =
-    deadlineMs === null
-      ? null
-      : Math.max(0, Math.ceil((deadlineMs - now) / 1000));
-
-  useEffect(() => {
-    if (secondsLeft !== 0 || !openLot) return;
-    // The RPC re-checks the deadline, so browsers racing here is fine.
-    void closeLot(leagueId, openLot.id).then(() => router.refresh());
-  }, [secondsLeft, openLot, leagueId, router]);
+  // The lot clock ticks twice a second; it lives inside LotCard so that
+  // tick re-renders the bid number alone, not the nomination list, the
+  // budgets and the sold board. When it runs out LotCard calls this,
+  // which awards the lot (the RPC re-checks the deadline, so browsers
+  // racing here is fine).
+  const openLotId = openLot?.id ?? null;
+  const handleLotExpire = useCallback(() => {
+    if (!openLotId) return;
+    void closeLot(leagueId, openLotId).then(() => router.refresh());
+  }, [openLotId, leagueId, router]);
 
   // --- actions --------------------------------------------------------
   function run(fn: () => Promise<{ error?: string; ok?: string }>) {
@@ -188,7 +177,8 @@ export function AuctionRoom({
               ? (teamById.get(openLot.high_bidder_id)?.name ?? "?")
               : null
           }
-          secondsLeft={secondsLeft}
+          deadlineMs={openLot.closes_at ? new Date(openLot.closes_at).getTime() : null}
+          onExpire={handleLotExpire}
           canBid={
             !!myTeamId &&
             openLot.high_bidder_id !== myTeamId &&
@@ -334,7 +324,8 @@ function LotCard({
   lot,
   playerName,
   highBidderName,
-  secondsLeft,
+  deadlineMs,
+  onExpire,
   canBid,
   maxBid,
   pending,
@@ -343,13 +334,37 @@ function LotCard({
   lot: AuctionLot;
   playerName: string;
   highBidderName: string | null;
-  secondsLeft: number | null;
+  deadlineMs: number | null;
+  onExpire: () => void;
   canBid: boolean;
   maxBid: number;
   pending: boolean;
   onBid: (amount: number) => void;
 }) {
   const [custom, setCustom] = useState("");
+
+  // The countdown is owned here so its twice-a-second tick re-renders
+  // this card alone. `fired` keeps the expiry from firing on every
+  // zero-second tick.
+  const [now, setNow] = useState(() => Date.now());
+  const fired = useRef(false);
+
+  useEffect(() => {
+    fired.current = false;
+    if (deadlineMs === null) return;
+    const id = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(id);
+  }, [deadlineMs]);
+
+  const secondsLeft =
+    deadlineMs === null ? null : Math.max(0, Math.ceil((deadlineMs - now) / 1000));
+
+  useEffect(() => {
+    if (secondsLeft === 0 && !fired.current) {
+      fired.current = true;
+      onExpire();
+    }
+  }, [secondsLeft, onExpire]);
 
   const increments = [1, 5, 10].map((step) => lot.high_bid + step);
 

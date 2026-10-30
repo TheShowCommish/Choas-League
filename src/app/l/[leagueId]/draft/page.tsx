@@ -2,24 +2,14 @@ import Link from "next/link";
 import { getLeagueContext } from "@/lib/league";
 import { createClient } from "@/lib/supabase/server";
 import type { AutodraftStrategy, Draft, DraftPick } from "@/lib/types";
+import { toDraftablePlayer, type PoolRpcRow } from "@/lib/draft-pool";
 import { DraftRoom } from "./draft-room";
 import { AuctionRoom, type AuctionLot } from "./auction-room";
 import { positionLabel } from "@/lib/roster-slots";
 
-export interface DraftablePlayer {
-  player_id: string;
-  full_name: string;
-  pos: string | null;
-  team_abbr: string | null;
-  total_points: number;
-  adp: number | null;
-  adp_rank: number | null;
-  /** This season's projection, scored with this league's rules. */
-  proj_points: number | null;
-  injury_status: string | null;
-  injury_body_part: string | null;
-  bye_week: number | null;
-}
+// The board and the auction floor import the player shape from here; it
+// now lives alongside the slimming mapper that produces it.
+export type { DraftablePlayer } from "@/lib/draft-pool";
 
 /** Enough about a drafted player to render him on the board. */
 export interface PickedPlayer {
@@ -84,25 +74,45 @@ export default async function DraftPage({
 
   const draft = draftRow as Draft;
 
-  const [{ data: picks }, { data: pool }] = await Promise.all([
-    supabase
-      .from("draft_picks")
-      .select("*")
-      .eq("draft_id", draft.id)
-      .order("pick_number"),
-    supabase.rpc("league_player_pool", {
-      p_league: leagueId,
-      p_availability: "available",
-      // The board opens in the order the room is drafting, not in order
-      // of last season's points.
-      p_sort: "adp",
-      p_limit: POOL_SIZE,
-      p_offset: 0,
-    }),
-  ]);
+  // The picks, the pool and the manager's queue rows have no dependency
+  // on one another, so they open together. (The queue is empty for an
+  // auction, where there is no queue.)
+  const [{ data: picks }, { data: pool }, { data: queueRowsRaw }] =
+    await Promise.all([
+      supabase
+        .from("draft_picks")
+        .select("*")
+        .eq("draft_id", draft.id)
+        .order("pick_number"),
+      supabase.rpc("league_player_pool", {
+        p_league: leagueId,
+        p_availability: "available",
+        // The board opens in the order the room is drafting, not in order
+        // of last season's points.
+        p_sort: "adp",
+        p_limit: POOL_SIZE,
+        p_offset: 0,
+      }),
+      myTeam
+        ? supabase
+            .from("draft_queue")
+            .select("player_id, rank, target_round")
+            .eq("team_id", myTeam.id)
+            .order("rank")
+        : Promise.resolve({ data: [] }),
+    ]);
 
   const pickRows = (picks ?? []) as DraftPick[];
-  const available = (pool ?? []) as DraftablePlayer[];
+  // A projection, not a cast: keep only the eleven columns the room
+  // renders rather than serialising all two dozen the RPC returns for
+  // every one of the 500 players (see toDraftablePlayer).
+  const available = ((pool ?? []) as PoolRpcRow[]).map(toDraftablePlayer);
+
+  const queueRows = (queueRowsRaw ?? []) as {
+    player_id: string;
+    rank: number;
+    target_round: number | null;
+  }[];
 
   /*
    * Names for everybody already drafted.
@@ -115,12 +125,55 @@ export default async function DraftPage({
     .map((p) => p.player_id)
     .filter((id): id is string => !!id);
 
-  const { data: drafted } = draftedIds.length
-    ? await supabase
-        .from("nfl_players")
-        .select("id, full_name, position, team_abbr")
-        .in("id", draftedIds)
-    : { data: [] };
+  /*
+   * Who autopick would take for you, if your clock ran out. Resolved for
+   * the round of your *next* pick (snake only), so a target round that
+   * has not arrived yet reads correctly. Skipped once the draft is
+   * complete: no pick to make, no round to resolve against.
+   */
+  const myNextPick =
+    myTeam && draft.type !== "auction"
+      ? pickRows.find(
+          (p) =>
+            p.team_id === myTeam.id &&
+            p.pick_number >= draft.current_pick_number &&
+            !p.player_id,
+        )
+      : undefined;
+  const wantAutopick = !!(myTeam && myNextPick && draft.status !== "complete");
+
+  /*
+   * Everything that depends only on the first batch runs in the second,
+   * in parallel: the drafted players' names, the queued players' names
+   * and -- asked of the database rather than reimplemented here, since
+   * the database is what actually makes the pick -- what autopick would
+   * reach for.
+   */
+  const [{ data: drafted }, { data: queuedPlayers }, { data: candidateId }] =
+    await Promise.all([
+      draftedIds.length
+        ? supabase
+            .from("nfl_players")
+            .select("id, full_name, position, team_abbr")
+            .in("id", draftedIds)
+        : Promise.resolve({ data: [] }),
+      queueRows.length
+        ? supabase
+            .from("nfl_players")
+            .select("id, full_name, position, team_abbr, adp")
+            .in(
+              "id",
+              queueRows.map((r) => r.player_id),
+            )
+        : Promise.resolve({ data: [] }),
+      wantAutopick && myTeam && myNextPick
+        ? supabase.rpc("autopick_candidate", {
+            p_draft: draft.id,
+            p_team: myTeam.id,
+            p_round: myNextPick.round,
+          })
+        : Promise.resolve({ data: null }),
+    ]);
 
   const pickedPlayers = (drafted ?? []) as PickedPlayer[];
 
@@ -172,95 +225,39 @@ export default async function DraftPage({
   }
 
   // The queue, with enough about each player to render him without
-  // looking him up in a pool he may have already left.
-  let queue: QueueEntry[] = [];
+  // looking him up in a pool he may have already left. Built from the
+  // rows and names fetched in the two batches above.
+  const queuedById = new Map(
+    (queuedPlayers ?? []).map((p) => [p.id as string, p]),
+  );
+  const queue: QueueEntry[] = queueRows.map((row) => {
+    const player = queuedById.get(row.player_id);
+    return {
+      player_id: row.player_id,
+      rank: row.rank,
+      target_round: row.target_round,
+      full_name: (player?.full_name as string) ?? row.player_id,
+      position: (player?.position as string | null) ?? null,
+      team_abbr: (player?.team_abbr as string | null) ?? null,
+      adp: player?.adp === undefined ? null : Number(player.adp),
+    };
+  });
 
-  if (myTeam) {
-    const { data: queueRows } = await supabase
-      .from("draft_queue")
-      .select("player_id, rank, target_round")
-      .eq("team_id", myTeam.id)
-      .order("rank");
-
-    const rows = (queueRows ?? []) as {
-      player_id: string;
-      rank: number;
-      target_round: number | null;
-    }[];
-
-    if (rows.length > 0) {
-      const { data: queuedPlayers } = await supabase
-        .from("nfl_players")
-        .select("id, full_name, position, team_abbr, adp")
-        .in(
-          "id",
-          rows.map((r) => r.player_id),
-        );
-
-      const byId = new Map(
-        (queuedPlayers ?? []).map((p) => [p.id as string, p]),
-      );
-
-      queue = rows.map((row) => {
-        const player = byId.get(row.player_id);
-        return {
-          player_id: row.player_id,
-          rank: row.rank,
-          target_round: row.target_round,
-          full_name: (player?.full_name as string) ?? row.player_id,
-          position: (player?.position as string | null) ?? null,
-          team_abbr: (player?.team_abbr as string | null) ?? null,
-          adp: player?.adp === undefined ? null : Number(player.adp),
-        };
-      });
-    }
-  }
-
-  /*
-   * Who autopick would take for you, if your clock ran out.
-   *
-   * Asked of the database rather than worked out here, because the
-   * database is what will actually make the pick -- a second
-   * implementation in TypeScript would be a second set of rules to
-   * drift. It answers only about your own team: a queue is private, and
-   * its top name is the most valuable thing in it.
-   *
-   * Resolved for the round of your next pick, not the round the room is
-   * in, so a target round that has not arrived yet reads correctly.
-   */
-  const myNextPick = myTeam
-    ? pickRows.find(
-        (p) =>
-          p.team_id === myTeam.id &&
-          p.pick_number >= draft.current_pick_number &&
-          !p.player_id,
-      )
-    : undefined;
-
+  // The candidate id came back in the second batch; one last lookup
+  // turns it into the name the room shows.
   let autopickName: string | null = null;
+  if (candidateId) {
+    const { data: candidate } = await supabase
+      .from("nfl_players")
+      .select("full_name, position, team_abbr")
+      .eq("id", candidateId as string)
+      .maybeSingle();
 
-  // No pick left to make means nothing for autopick to do, and no round
-  // to resolve a target against -- so there is nothing to ask about.
-  if (myTeam && myNextPick && draft.status !== "complete") {
-    const { data: candidateId } = await supabase.rpc("autopick_candidate", {
-      p_draft: draft.id,
-      p_team: myTeam.id,
-      p_round: myNextPick.round,
-    });
-
-    if (candidateId) {
-      const { data: candidate } = await supabase
-        .from("nfl_players")
-        .select("full_name, position, team_abbr")
-        .eq("id", candidateId as string)
-        .maybeSingle();
-
-      autopickName = candidate
-        ? `${candidate.full_name} (${positionLabel(candidate.position)} · ${
-            candidate.team_abbr ?? "FA"
-          })`
-        : null;
-    }
+    autopickName = candidate
+      ? `${candidate.full_name} (${positionLabel(candidate.position)} · ${
+          candidate.team_abbr ?? "FA"
+        })`
+      : null;
   }
 
   return (

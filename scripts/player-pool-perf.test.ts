@@ -170,4 +170,23 @@ describe("league_player_pool performance (T-062)", () => {
       `projection sort took ${elapsed.toFixed(0)}ms, budget ${BUDGET_MS}ms`,
     );
   });
+
+  // The draft board asks for a 500-player page sorted by ADP, ten times
+  // the Players tab's 50. The materialised aggregates are evaluated once
+  // regardless of page size, so this must stay in the same budget rather
+  // than scaling with the limit (T-087).
+  test("the draft's 500-row ADP page stays within budget", async () => {
+    await call("adp", 500); // warm
+    const start = performance.now();
+    const rows = await call("adp", 500);
+    const elapsed = performance.now() - start;
+    assert.ok(
+      rows.length <= 500,
+      `a 500 page is at most 500 rows (got ${rows.length})`,
+    );
+    assert.ok(
+      elapsed < BUDGET_MS,
+      `draft pool page took ${elapsed.toFixed(0)}ms, budget ${BUDGET_MS}ms`,
+    );
+  });
 });

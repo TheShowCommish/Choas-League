@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -21,6 +22,7 @@ import {
 import { byPosition, expandSlots, positionLabel, slotAccepts } from "@/lib/roster-slots";
 import { describeInjury, INJURY_CLASS } from "@/lib/injury";
 import type { DraftablePlayer, PickedPlayer, QueueEntry } from "./page";
+import { DRAFT_POOL_RENDER_LIMIT } from "@/lib/draft-pool";
 import {
   makePick,
   queuePlayer,
@@ -157,39 +159,21 @@ export function DraftRoom({
   }, [draft.id, router]);
 
   // --- the clock ------------------------------------------------------
-  // Only `now` is state, and it is written solely from the interval
-  // callback -- deriving the countdown during render avoids the
-  // cascading re-render an effect-driven counter would cause.
+  // The countdown lives in its own component (DraftClock) so its
+  // once-a-second tick re-renders a single number, not the board, the
+  // 500-row pool and both side panels. The room only needs the deadline
+  // and what to do when it runs out.
   const deadlineMs =
     draft.status === "live" && draft.pick_deadline
       ? new Date(draft.pick_deadline).getTime()
       : null;
 
-  const [now, setNow] = useState(() => Date.now());
-  const autopickFired = useRef(false);
-
-  useEffect(() => {
-    autopickFired.current = false;
-    if (deadlineMs === null) return;
-
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [deadlineMs]);
-
-  const secondsLeft =
-    deadlineMs === null
-      ? null
-      : Math.max(0, Math.round((deadlineMs - now) / 1000));
-
-  useEffect(() => {
-    if (secondsLeft !== 0 || !draft.autopick_enabled) return;
-    if (autopickFired.current) return;
-
+  const handleClockExpire = useCallback(() => {
+    if (!draft.autopick_enabled) return;
     // Whoever has the room open nudges the server. The RPC re-checks the
     // deadline itself, so several browsers racing here is harmless.
-    autopickFired.current = true;
     void runAutopick(leagueId, draft.id).then(() => router.refresh());
-  }, [secondsLeft, draft.autopick_enabled, draft.id, leagueId, router]);
+  }, [draft.autopick_enabled, draft.id, leagueId, router]);
 
   // --- actions --------------------------------------------------------
   const pick = useCallback(
@@ -209,31 +193,34 @@ export function DraftRoom({
     [queue],
   );
 
-  function toggleQueue(player: DraftablePlayer) {
-    if (!myTeamId) return;
+  const toggleQueue = useCallback(
+    (player: DraftablePlayer) => {
+      if (!myTeamId) return;
 
-    if (queuedIds.has(player.player_id)) {
-      setQueue((prev) => prev.filter((q) => q.player_id !== player.player_id));
+      if (queuedIds.has(player.player_id)) {
+        setQueue((prev) => prev.filter((q) => q.player_id !== player.player_id));
+        startTransition(async () => {
+          await unqueuePlayer(myTeamId, player.player_id);
+        });
+        return;
+      }
+
+      const entry: QueueEntry = {
+        player_id: player.player_id,
+        rank: queue.length + 1,
+        target_round: null,
+        full_name: player.full_name,
+        position: player.pos,
+        team_abbr: player.team_abbr,
+        adp: player.adp,
+      };
+      setQueue((prev) => [...prev, entry]);
       startTransition(async () => {
-        await unqueuePlayer(myTeamId, player.player_id);
+        await queuePlayer(myTeamId, player.player_id, queue.length + 1, null);
       });
-      return;
-    }
-
-    const entry: QueueEntry = {
-      player_id: player.player_id,
-      rank: queue.length + 1,
-      target_round: null,
-      full_name: player.full_name,
-      position: player.pos,
-      team_abbr: player.team_abbr,
-      adp: player.adp,
-    };
-    setQueue((prev) => [...prev, entry]);
-    startTransition(async () => {
-      await queuePlayer(myTeamId, player.player_id, queue.length + 1, null);
-    });
-  }
+    },
+    [myTeamId, queue, queuedIds],
+  );
 
   function moveInQueue(playerId: string, by: number) {
     if (!myTeamId) return;
@@ -377,6 +364,16 @@ export function DraftRoom({
     );
   }, [available, draftedIds, search, position, sort, flexPositions]);
 
+  // Only the first slice reaches the DOM. Search and the position filter
+  // run over the whole pool above, so narrowing still surfaces anyone;
+  // this just keeps the table from laying out (and, on every pick,
+  // reconciling) hundreds of rows at once.
+  const visible = useMemo(
+    () => filtered.slice(0, DRAFT_POOL_RENDER_LIMIT),
+    [filtered],
+  );
+  const hiddenCount = filtered.length - visible.length;
+
   const rosterTeam = teamById.get(rosterTeamId) ?? null;
 
   return (
@@ -391,16 +388,8 @@ export function DraftRoom({
             </p>
           </div>
 
-          {draft.status === "live" && secondsLeft !== null && (
-            <div
-              suppressHydrationWarning
-              className={`text-3xl font-bold tabular-nums ${
-                secondsLeft <= 10 ? "text-negative" : ""
-              }`}
-            >
-              {Math.floor(secondsLeft / 60)}:
-              {String(secondsLeft % 60).padStart(2, "0")}
-            </div>
+          {deadlineMs !== null && (
+            <DraftClock deadlineMs={deadlineMs} onExpire={handleClockExpire} />
           )}
         </div>
 
@@ -533,94 +522,26 @@ export function DraftRoom({
                     </td>
                   </tr>
                 )}
-                {filtered.map((player) => {
-                  const injury = describeInjury(player);
-                  const posRank = positionRankById.get(player.player_id);
-
-                  return (
-                    <tr key={player.player_id}>
-                      <td className="muted text-right text-xs tabular-nums">
-                        {player.adp === null
-                          ? "—"
-                          : Number(player.adp).toFixed(1)}
-                      </td>
-                      <td>
-                        <span className="flex flex-wrap items-center gap-x-2">
-                          <span className="font-medium">
-                            {player.full_name}
-                          </span>
-                          {injury && (
-                            <span
-                              className={`rounded border px-1 text-[10px] font-semibold ${
-                                INJURY_CLASS[injury.tone]
-                              }`}
-                              title={`${injury.outlook}${
-                                injury.bodyPart ? ` (${injury.bodyPart})` : ""
-                              }`}
-                            >
-                              {injury.label}
-                            </span>
-                          )}
-                        </span>
-                        <span className="muted text-xs">
-                          {positionLabel(player.pos)}
-                          {posRank !== undefined && (
-                            <span
-                              title={`${ordinal(posRank)} best ${player.pos} still on the board`}
-                            >
-                              {posRank}
-                            </span>
-                          )}{" "}
-                          &middot; {player.team_abbr ?? "FA"}
-                          {player.bye_week !== null && (
-                            <> &middot; bye {player.bye_week}</>
-                          )}
-                        </span>
-                      </td>
-                      <td className="text-right tabular-nums">
-                        {player.proj_points === null
-                          ? "—"
-                          : Number(player.proj_points).toFixed(0)}
-                      </td>
-                      <td className="muted text-right tabular-nums">
-                        {Number(player.total_points).toFixed(0)}
-                      </td>
-                      <td>
-                        <div className="flex gap-1">
-                          {myTeamId && (
-                            <button
-                              type="button"
-                              className={`btn btn-sm ${
-                                queuedIds.has(player.player_id)
-                                  ? "btn-primary"
-                                  : ""
-                              }`}
-                              disabled={pending}
-                              onClick={() => toggleQueue(player)}
-                              title={
-                                queuedIds.has(player.player_id)
-                                  ? "Remove from your queue"
-                                  : "Add to your queue"
-                              }
-                            >
-                              {queuedIds.has(player.player_id) ? "★" : "☆"}
-                            </button>
-                          )}
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-primary"
-                            disabled={!canPick || pending}
-                            onClick={() =>
-                              pick(player.player_id, player.full_name)
-                            }
-                          >
-                            Draft
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {visible.map((player) => (
+                  <PoolRow
+                    key={player.player_id}
+                    player={player}
+                    posRank={positionRankById.get(player.player_id)}
+                    queued={queuedIds.has(player.player_id)}
+                    showQueue={!!myTeamId}
+                    canPick={canPick}
+                    pending={pending}
+                    onToggleQueue={toggleQueue}
+                    onDraft={pick}
+                  />
+                ))}
+                {hiddenCount > 0 && (
+                  <tr>
+                    <td colSpan={5} className="muted py-3 text-center text-xs">
+                      {hiddenCount} more — search or filter to narrow.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -668,6 +589,151 @@ function ordinal(n: number): string {
   if (rest >= 11 && rest <= 13) return `${n}th`;
   return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
+
+/**
+ * The pick clock, isolated.
+ *
+ * It ticks once a second, and that tick is state, so keeping it here --
+ * rather than in the room -- means the second-by-second re-render touches
+ * one number and nothing else. When the deadline passes it calls
+ * `onExpire` exactly once (the ref guards a run of zero-second renders),
+ * which the room uses to nudge the server's autopick.
+ */
+function DraftClock({
+  deadlineMs,
+  onExpire,
+}: {
+  deadlineMs: number;
+  onExpire: () => void;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  const fired = useRef(false);
+
+  useEffect(() => {
+    fired.current = false;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [deadlineMs]);
+
+  const secondsLeft = Math.max(0, Math.round((deadlineMs - now) / 1000));
+
+  useEffect(() => {
+    if (secondsLeft === 0 && !fired.current) {
+      fired.current = true;
+      onExpire();
+    }
+  }, [secondsLeft, onExpire]);
+
+  return (
+    <div
+      suppressHydrationWarning
+      className={`text-3xl font-bold tabular-nums ${
+        secondsLeft <= 10 ? "text-negative" : ""
+      }`}
+    >
+      {Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, "0")}
+    </div>
+  );
+}
+
+/**
+ * One row of the available pool.
+ *
+ * Memoised, and fed only primitives plus stable callbacks, so a player
+ * whose figures have not moved does not re-render when the manager types
+ * in the search box or stars somebody else. The injury badge is worked
+ * out here rather than in the parent's map, so that work happens only
+ * when this row actually renders.
+ */
+const PoolRow = memo(function PoolRow({
+  player,
+  posRank,
+  queued,
+  showQueue,
+  canPick,
+  pending,
+  onToggleQueue,
+  onDraft,
+}: {
+  player: DraftablePlayer;
+  posRank: number | undefined;
+  queued: boolean;
+  showQueue: boolean;
+  canPick: boolean;
+  pending: boolean;
+  onToggleQueue: (player: DraftablePlayer) => void;
+  onDraft: (playerId: string, name: string) => void;
+}) {
+  const injury = describeInjury(player);
+
+  return (
+    <tr>
+      <td className="muted text-right text-xs tabular-nums">
+        {player.adp === null ? "—" : Number(player.adp).toFixed(1)}
+      </td>
+      <td>
+        <span className="flex flex-wrap items-center gap-x-2">
+          <span className="font-medium">{player.full_name}</span>
+          {injury && (
+            <span
+              className={`rounded border px-1 text-[10px] font-semibold ${
+                INJURY_CLASS[injury.tone]
+              }`}
+              title={`${injury.outlook}${
+                injury.bodyPart ? ` (${injury.bodyPart})` : ""
+              }`}
+            >
+              {injury.label}
+            </span>
+          )}
+        </span>
+        <span className="muted text-xs">
+          {positionLabel(player.pos)}
+          {posRank !== undefined && (
+            <span
+              title={`${ordinal(posRank)} best ${player.pos} still on the board`}
+            >
+              {posRank}
+            </span>
+          )}{" "}
+          &middot; {player.team_abbr ?? "FA"}
+          {player.bye_week !== null && <> &middot; bye {player.bye_week}</>}
+        </span>
+      </td>
+      <td className="text-right tabular-nums">
+        {player.proj_points === null
+          ? "—"
+          : Number(player.proj_points).toFixed(0)}
+      </td>
+      <td className="muted text-right tabular-nums">
+        {Number(player.total_points).toFixed(0)}
+      </td>
+      <td>
+        <div className="flex gap-1">
+          {showQueue && (
+            <button
+              type="button"
+              className={`btn btn-sm ${queued ? "btn-primary" : ""}`}
+              disabled={pending}
+              onClick={() => onToggleQueue(player)}
+              title={queued ? "Remove from your queue" : "Add to your queue"}
+            >
+              {queued ? "★" : "☆"}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-sm btn-primary"
+            disabled={!canPick || pending}
+            onClick={() => onDraft(player.player_id, player.full_name)}
+          >
+            Draft
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+});
 
 /**
  * The board, top to bottom.
