@@ -11,6 +11,12 @@ import {
   fetchTeamName,
 } from "@/lib/defense-vs-position-server";
 import { Headshot } from "../players/player-bits";
+import {
+  DIFFICULTY_CHIP,
+  DIFFICULTY_TEXT,
+  DIFFICULTY_WORD,
+  difficultyTier,
+} from "./difficulty";
 
 /**
  * Points allowed: for one NFL defense and one position, every player of
@@ -74,24 +80,34 @@ export default async function DefensePage({
         </p>
       </header>
 
-      {rank && (
-        <div className="card flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span>
-            <span className="text-lg font-semibold tabular-nums">
-              {ordinal(rank.rank)}
-            </span>{" "}
-            <span className="muted text-sm">
-              of {rank.teams} defenses &mdash; {team} allows the{" "}
-              {ordinal(rank.rank)}-most to {posLabel}
-            </span>
-          </span>
-          <span className="muted ml-auto text-sm tabular-nums">
-            {rank.total.toFixed(1)} pts over {rank.games}{" "}
-            {rank.games === 1 ? "game" : "games"} &middot; {rank.avg.toFixed(1)}{" "}
-            avg
-          </span>
-        </div>
-      )}
+      {rank &&
+        (() => {
+          const tier = difficultyTier(rank.rank, rank.teams);
+          return (
+            <div className="card flex flex-wrap items-center gap-x-5 gap-y-3">
+              <div className="flex items-baseline gap-2">
+                <span className={`score text-4xl ${DIFFICULTY_TEXT[tier]}`}>
+                  {ordinal(rank.rank)}
+                </span>
+                <span className="muted text-sm">of {rank.teams} defenses</span>
+              </div>
+              <span
+                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold ${DIFFICULTY_CHIP[tier]}`}
+              >
+                {DIFFICULTY_WORD[tier]} matchup
+              </span>
+              <p className="muted basis-full text-sm md:basis-auto">
+                {team} allows the {ordinal(rank.rank)}-most fantasy points to{" "}
+                {posLabel} this season.
+              </p>
+              <span className="muted text-sm tabular-nums md:ml-auto">
+                {rank.total.toFixed(1)} pts over {rank.games}{" "}
+                {rank.games === 1 ? "game" : "games"} &middot;{" "}
+                {rank.avg.toFixed(1)} avg
+              </span>
+            </div>
+          );
+        })()}
 
       {allowed.length === 0 ? (
         <div className="card-tight border-dashed p-6 text-center">
@@ -100,44 +116,77 @@ export default async function DefensePage({
           </p>
         </div>
       ) : (
-        <div className="card-tight overflow-hidden">
-          <table className="table">
-            <thead>
-              <tr>
-                <th className="pl-3">Week</th>
-                <th>Player</th>
-                <th className="pr-3 text-right">Pts</th>
-              </tr>
-            </thead>
-            <tbody>
-              {allowed.map((row) => (
-                <tr key={`${row.playerId}-${row.week}`}>
-                  <td className="pl-3 whitespace-nowrap tabular-nums">
-                    Wk {row.week}
-                  </td>
-                  <td>
-                    <Link
-                      href={`/l/${leagueId}/players/${row.playerId}`}
-                      className="group flex items-center gap-2"
-                    >
-                      <Headshot
-                        url={row.headshotUrl}
-                        name={row.playerName}
-                        size={28}
-                      />
-                      <span className="truncate font-medium group-hover:text-accent">
-                        {row.playerName}
-                      </span>
-                    </Link>
-                  </td>
-                  <td className="pr-3 text-right">
-                    <span className="score">{row.points.toFixed(1)}</span>
-                  </td>
+        <>
+          {/* Desktop: a table, newest week first. */}
+          <div className="card-tight hidden overflow-hidden md:block">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th className="pl-3">Week</th>
+                  <th>Player</th>
+                  <th className="pr-3 text-right">Pts</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {allowed.map((row) => (
+                  <tr key={`${row.playerId}-${row.week}`}>
+                    <td className="pl-3 whitespace-nowrap tabular-nums">
+                      Wk {row.week}
+                    </td>
+                    <td>
+                      <Link
+                        href={`/l/${leagueId}/players/${row.playerId}`}
+                        className="group flex items-center gap-2"
+                      >
+                        <Headshot
+                          url={row.headshotUrl}
+                          name={row.playerName}
+                          size={28}
+                        />
+                        <span className="truncate font-medium group-hover:text-accent">
+                          {row.playerName}
+                        </span>
+                      </Link>
+                    </td>
+                    <td className="pr-3 text-right">
+                      <span className="score">{row.points.toFixed(1)}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile: a stacked card per week, so nothing scrolls sideways. */}
+          <ul className="card-tight divide-y divide-border/60 overflow-hidden md:hidden">
+            {allowed.map((row) => (
+              <li
+                key={`${row.playerId}-${row.week}`}
+                className="flex items-center gap-3 px-3 py-2.5"
+              >
+                <Headshot
+                  url={row.headshotUrl}
+                  name={row.playerName}
+                  size={36}
+                />
+                <Link
+                  href={`/l/${leagueId}/players/${row.playerId}`}
+                  className="min-w-0 flex-1"
+                >
+                  <span className="block truncate font-medium">
+                    {row.playerName}
+                  </span>
+                  <span className="muted text-xs tabular-nums">
+                    Week {row.week}
+                  </span>
+                </Link>
+                <span className="score shrink-0 text-xl tabular-nums">
+                  {row.points.toFixed(1)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   );
@@ -145,7 +194,10 @@ export default async function DefensePage({
 
 function Header({ leagueId }: { leagueId: string }) {
   return (
-    <Link href={`/l/${leagueId}/my-team`} className="muted text-sm">
+    <Link
+      href={`/l/${leagueId}/my-team`}
+      className="muted inline-flex items-center gap-1 text-sm hover:text-accent"
+    >
       &larr; My Team
     </Link>
   );
