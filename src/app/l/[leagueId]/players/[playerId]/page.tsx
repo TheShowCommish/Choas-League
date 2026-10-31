@@ -12,6 +12,7 @@ import {
 import { STAT_BY_KEY } from "@/lib/stats/catalog";
 import type { NflPlayer, ScoreBreakdownEntry } from "@/lib/types";
 import { positionLabel } from "@/lib/roster-slots";
+import { WatchToggle } from "../watch-toggle";
 
 interface WeekRow {
   week: number;
@@ -74,6 +75,7 @@ export default async function PlayerPage({
     { data: scores },
     { data: raw },
     { data: owner },
+    { data: watchRow },
   ] = await Promise.all([
       supabase.from("nfl_players").select("*").eq("id", playerId).maybeSingle(),
       supabase
@@ -95,6 +97,14 @@ export default async function PlayerPage({
         .eq("league_id", leagueId)
         .eq("player_id", playerId)
         .is("dropped_at", null)
+        .maybeSingle(),
+      // Is this player on the signed-in user's watchlist? RLS scopes the
+      // row to them (0045), so no user filter is needed here.
+      supabase
+        .from("player_watchlist")
+        .select("id")
+        .eq("league_id", leagueId)
+        .eq("player_id", playerId)
         .maybeSingle(),
     ]);
 
@@ -210,6 +220,13 @@ export default async function PlayerPage({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="h1">{p.full_name}</h1>
+              <WatchToggle
+                leagueId={leagueId}
+                playerId={playerId}
+                initialWatching={watchRow != null}
+                playerName={p.full_name}
+                size={22}
+              />
               {injury && (
                 <span
                   className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-semibold ${

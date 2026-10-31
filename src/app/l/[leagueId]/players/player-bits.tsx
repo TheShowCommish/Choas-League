@@ -90,11 +90,14 @@ export function AvailabilityChip({
     );
   }
 
-  // A team the league context could not resolve -- removed mid-season, say.
+  // A team the league context could not resolve -- removed mid-season, say
+  // -- or, on the watchlist, the "Rostered by X" line, where the owner is
+  // known by name only. max-w-full + truncate keep a long franchise name
+  // from pushing a narrow card sideways.
   if (ownerName) {
     return (
-      <span className="inline-flex items-center rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs text-muted">
-        {ownerName}
+      <span className="inline-flex max-w-full items-center rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs text-muted">
+        <span className="truncate">{ownerName}</span>
       </span>
     );
   }

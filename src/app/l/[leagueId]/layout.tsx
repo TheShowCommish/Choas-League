@@ -1,11 +1,13 @@
 import { getLeagueContext } from "@/lib/league";
 import { createClient } from "@/lib/supabase/server";
+import { getUnreadCount } from "@/lib/notifications-server";
 import type { League } from "@/lib/types";
 import { TeamThemeVars } from "@/app/theme";
 import { ThemeSwitch } from "@/app/theme-switch";
 import { LeagueMain } from "./main-width";
 import { LeagueSwitcher, type LeagueOption } from "./league-switcher";
 import { LeagueNav } from "./nav";
+import { NotificationBell } from "./notification-bell";
 import Link from "next/link";
 import { ChaosMark, Wordmark } from "@/app/wordmark";
 
@@ -28,7 +30,7 @@ export default async function LeagueLayout({
   // so nobody has a dead link sitting there for eleven months of the
   // year. The commissioner always sees it, to set it up.
   const supabase = await createClient();
-  const [{ data: draft }, { data: memberships }] = await Promise.all([
+  const [{ data: draft }, { data: memberships }, unread] = await Promise.all([
     supabase
       .from("drafts")
       .select("status")
@@ -41,6 +43,7 @@ export default async function LeagueLayout({
       .select("role, leagues(id, name, season)")
       .order("joined_at", { ascending: true })
       .overrideTypes<MembershipRow[]>(),
+    getUnreadCount(leagueId),
   ]);
 
   const showDraft =
@@ -98,13 +101,16 @@ export default async function LeagueLayout({
             </p>
           </div>
 
-          {/* Phones find these in the bottom nav's More sheet instead, and
-              get the header row back for the league name. */}
-          <div className="hidden shrink-0 items-center gap-2 md:flex">
-            <ThemeSwitch />
-            <form action="/auth/signout" method="post">
-              <button className="btn btn-sm">Sign out</button>
-            </form>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* The bell stays on phones -- an alert is a quick-action cue;
+                theme and sign-out move to the More sheet there. */}
+            <NotificationBell leagueId={leagueId} unread={unread} />
+            <div className="hidden items-center gap-2 md:flex">
+              <ThemeSwitch />
+              <form action="/auth/signout" method="post">
+                <button className="btn btn-sm">Sign out</button>
+              </form>
+            </div>
           </div>
         </div>
 

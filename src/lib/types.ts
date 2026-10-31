@@ -271,6 +271,35 @@ export interface WaiverClaim {
   processed_at: string | null;
 }
 
+/**
+ * Whether a watched player can be picked up (T-074): already rostered,
+ * sitting on waivers, or a free agent.
+ */
+export type WatchAvailability = "owned" | "waivers" | "fa";
+
+/**
+ * One player on a user's watchlist, with the context the list shows:
+ * identity, where he can be had, and his next fixture. Built server-side
+ * in watchlist-server.ts from the same reads the Players tab/player page
+ * use; not a straight row of player_watchlist (0045).
+ */
+export interface WatchlistEntry {
+  playerId: string;
+  fullName: string;
+  pos: string | null;
+  teamAbbr: string | null;
+  headshotUrl: string | null;
+  availability: WatchAvailability;
+  /** The team rostering him, when availability is "owned". */
+  ownerName: string | null;
+  /** Next-week opponent abbreviation; null for a bye / no fixture. */
+  nextOpponent: string | null;
+  /** When the star was added; the list is newest-first. */
+  createdAt: string;
+}
+
+export type Watchlist = WatchlistEntry[];
+
 export interface StatDefinition {
   key: string;
   label: string;
@@ -374,5 +403,34 @@ export interface LeagueMessage {
   user_id: string;
   body: string;
   is_system: boolean;
+  created_at: string;
+}
+
+/** The kinds of in-app alert the notification centre raises (T-072). */
+export type NotificationType =
+  | "trade_offer"
+  | "trade_accepted"
+  | "trade_rejected"
+  | "trade_withdrawn"
+  | "waiver_won"
+  | "waiver_lost"
+  | "matchup_final";
+
+/**
+ * One row of a user's in-app inbox. Written server-side through the
+ * notify() RPC; read and marked-read by the recipient. Not in the
+ * generated types, so hand-written here to match 0044.
+ */
+export interface Notification {
+  id: string;
+  league_id: string;
+  recipient_user_id: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  /** Relative path to the screen the alert is about. */
+  link: string;
+  data: Record<string, unknown> | null;
+  read_at: string | null;
   created_at: string;
 }

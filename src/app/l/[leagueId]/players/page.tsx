@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getLeagueContext } from "@/lib/league";
-import { getTeamRoster } from "@/lib/roster";
+import { getTeamRoster, type RosterEntry } from "@/lib/roster";
 import { createClient } from "@/lib/supabase/server";
 import { positionLabel } from "@/lib/roster-slots";
 import type { Team, WaiverClaim } from "@/lib/types";
@@ -11,6 +11,8 @@ import { PendingClaims } from "./pending-claims";
 import { AvailabilityChip, Headshot } from "./player-bits";
 import { SortHeader } from "./sortable";
 import { WaiverFab, type AddablePlayer } from "./waiver-fab";
+import { WatchToggle } from "./watch-toggle";
+import { getWatchedPlayerIds } from "@/lib/watchlist-server";
 
 const PAGE_SIZE = 50;
 
@@ -60,8 +62,21 @@ export default async function PlayersPage({
   const sort = sp.sort || "points";
   const dir = sp.dir === "asc" ? "asc" : "desc";
 
-  const [{ data: pool }, { data: positions }, { data: nflTeams }, { data: claims }] =
-    await Promise.all([
+  // The manager's roster is needed for add/claim's drop options, but it
+  // depends on nothing the pool query returns. Kick it off here so it
+  // runs alongside the pool read rather than in a serial wave of its own
+  // after it -- one fewer round trip on the page's critical path (T-088).
+  const rosterPromise: Promise<RosterEntry[]> = myTeam
+    ? getTeamRoster(leagueId, myTeam.id, league.season, league.current_week)
+    : Promise.resolve([]);
+
+  const [
+    { data: pool },
+    { data: positions },
+    { data: nflTeams },
+    { data: claims },
+    watchedIds,
+  ] = await Promise.all([
       supabase.rpc("league_player_pool", {
         p_league: leagueId,
         p_search: sp.q || null,
@@ -86,16 +101,19 @@ export default async function PlayersPage({
             .eq("status", "pending")
             .order("claim_priority")
         : Promise.resolve({ data: [] }),
+      // The user's stars, so each row can show a filled or empty star
+      // without the pool RPC knowing anything about watchlists.
+      getWatchedPlayerIds(leagueId),
     ]);
 
+  const watched = new Set(watchedIds);
   const rows = (pool ?? []) as PoolRow[];
   const totalCount = rows[0]?.total_count ?? 0;
   const pageCount = Math.max(Math.ceil(Number(totalCount) / PAGE_SIZE), 1);
 
   // The manager's own roster, so add/claim can offer a matching drop.
-  const myRoster = myTeam
-    ? await getTeamRoster(leagueId, myTeam.id, league.season, league.current_week)
-    : [];
+  // Started above so it ran in parallel with the pool query (T-088).
+  const myRoster = await rosterPromise;
 
   // A dropped player still locked into the week cannot be dropped again.
   const dropOptions = myRoster.filter((r) => r.onRoster).map((r) => ({
@@ -132,9 +150,14 @@ export default async function PlayersPage({
       <header>
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <h1 className="h1">Players</h1>
-          <Link href={`/l/${leagueId}/compare`} className="btn btn-sm">
-            Compare players
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href={`/l/${leagueId}/watchlist`} className="btn btn-sm">
+              Watchlist
+            </Link>
+            <Link href={`/l/${leagueId}/compare`} className="btn btn-sm">
+              Compare players
+            </Link>
+          </div>
         </div>
         <p className="muted">
           {league.waiver_type === "faab"
@@ -199,17 +222,26 @@ export default async function PlayersPage({
                 {rows.map((row) => (
                   <tr key={row.player_id}>
                     <td>
-                      <Link
-                        href={`/l/${leagueId}/players/${row.player_id}`}
-                        className="flex items-center gap-2.5 font-medium hover:text-accent"
-                      >
-                        <Headshot
-                          url={row.headshot_url}
-                          name={row.full_name}
-                          size={28}
+                      <div className="flex items-center gap-2">
+                        <WatchToggle
+                          leagueId={leagueId}
+                          playerId={row.player_id}
+                          initialWatching={watched.has(row.player_id)}
+                          playerName={row.full_name}
+                          size={18}
                         />
-                        <span className="truncate">{row.full_name}</span>
-                      </Link>
+                        <Link
+                          href={`/l/${leagueId}/players/${row.player_id}`}
+                          className="flex min-w-0 items-center gap-2.5 font-medium hover:text-accent"
+                        >
+                          <Headshot
+                            url={row.headshot_url}
+                            name={row.full_name}
+                            size={28}
+                          />
+                          <span className="truncate">{row.full_name}</span>
+                        </Link>
+                      </div>
                     </td>
 
                     <td className="text-xs">{positionLabel(row.pos)}</td>
@@ -277,10 +309,23 @@ export default async function PlayersPage({
               player page; adding is the FAB's job. */}
           <ul className="space-y-2 md:hidden">
             {rows.map((row) => (
-              <li key={row.player_id}>
+              <li key={row.player_id} className="relative">
+                {/* A sibling of the Link, not a child: tapping the star must
+                    toggle the watch, never open the player page. Sat in the
+                    corner, with the card padded on that side so it never
+                    lands on the Avg/Total figures. */}
+                <div className="absolute right-1 top-1 z-10">
+                  <WatchToggle
+                    leagueId={leagueId}
+                    playerId={row.player_id}
+                    initialWatching={watched.has(row.player_id)}
+                    playerName={row.full_name}
+                    size={18}
+                  />
+                </div>
                 <Link
                   href={`/l/${leagueId}/players/${row.player_id}`}
-                  className="card-tight flex items-center gap-3 p-3"
+                  className="card-tight flex items-center gap-3 p-3 pr-12"
                 >
                   <Headshot url={row.headshot_url} name={row.full_name} size={40} />
 

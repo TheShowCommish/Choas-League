@@ -2,6 +2,12 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { sendNotification } from "@/lib/notifications-server";
+import {
+  tradeAcceptedNotification,
+  tradeClosedNotification,
+  tradeOfferNotification,
+} from "@/lib/notifications";
 
 export interface TradeResult {
   error?: string;
@@ -126,6 +132,22 @@ export async function proposeTrade(
     return { error: itemError.message };
   }
 
+  // Tell the other manager an offer is waiting. Best-effort.
+  const { data: teamRows } = await supabase
+    .from("teams")
+    .select("id, name, owner_id")
+    .in("id", [fromTeamId, toTeamId]);
+  const fromTeam = teamRows?.find((t) => t.id === fromTeamId);
+  const toTeam = teamRows?.find((t) => t.id === toTeamId);
+  if (toTeam?.owner_id && fromTeam) {
+    await sendNotification(
+      leagueId,
+      toTeam.owner_id,
+      tradeOfferNotification(leagueId, fromTeam.name),
+      { tradeId: trade.id },
+    );
+  }
+
   revalidatePath(`/l/${leagueId}/trades`);
   return { ok: "Trade proposed." };
 }
@@ -157,6 +179,29 @@ export async function acceptTrade(
     return { error: error.message };
   }
 
+  // Tell the proposer their offer went through. Best-effort.
+  const { data: trade } = await supabase
+    .from("trades")
+    .select("proposing_team_id, receiving_team_id")
+    .eq("id", tradeId)
+    .single();
+  if (trade) {
+    const { data: teamRows } = await supabase
+      .from("teams")
+      .select("id, name, owner_id")
+      .in("id", [trade.proposing_team_id, trade.receiving_team_id]);
+    const proposing = teamRows?.find((t) => t.id === trade.proposing_team_id);
+    const receiving = teamRows?.find((t) => t.id === trade.receiving_team_id);
+    if (proposing?.owner_id && receiving) {
+      await sendNotification(
+        leagueId,
+        proposing.owner_id,
+        tradeAcceptedNotification(leagueId, receiving.name),
+        { tradeId },
+      );
+    }
+  }
+
   revalidatePath(`/l/${leagueId}`, "layout");
   return { ok: "Trade completed." };
 }
@@ -175,6 +220,38 @@ export async function respondToTrade(
     .eq("status", "pending");
 
   if (error) return { error: error.message };
+
+  // Tell the affected party. A rejection goes to the proposer; a
+  // withdrawal goes to the manager it was offered to. Best-effort.
+  const { data: trade } = await supabase
+    .from("trades")
+    .select("proposing_team_id, receiving_team_id")
+    .eq("id", tradeId)
+    .single();
+  if (trade) {
+    const { data: teamRows } = await supabase
+      .from("teams")
+      .select("id, name, owner_id")
+      .in("id", [trade.proposing_team_id, trade.receiving_team_id]);
+    const proposing = teamRows?.find((t) => t.id === trade.proposing_team_id);
+    const receiving = teamRows?.find((t) => t.id === trade.receiving_team_id);
+
+    if (status === "rejected" && proposing?.owner_id && receiving) {
+      await sendNotification(
+        leagueId,
+        proposing.owner_id,
+        tradeClosedNotification(leagueId, "rejected", receiving.name),
+        { tradeId },
+      );
+    } else if (status === "cancelled" && receiving?.owner_id && proposing) {
+      await sendNotification(
+        leagueId,
+        receiving.owner_id,
+        tradeClosedNotification(leagueId, "withdrawn", proposing.name),
+        { tradeId },
+      );
+    }
+  }
 
   revalidatePath(`/l/${leagueId}/trades`);
   return { ok: status === "rejected" ? "Trade rejected." : "Trade cancelled." };

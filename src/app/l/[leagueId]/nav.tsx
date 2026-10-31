@@ -53,6 +53,7 @@ export function LeagueNav({
     { href: `${base}/my-team`, label: "My Team", icon: "team", phoneTab: true },
     { href: `${base}/matchups`, label: "Matchups", icon: "matchups", phoneTab: true },
     { href: `${base}/players`, label: "Players", icon: "players", phoneTab: true },
+    { href: `${base}/watchlist`, label: "Watchlist", icon: "watch" },
     { href: `${base}/trades`, label: "Trades", icon: "trades" },
     { href: `${base}/standings`, label: "Standings", icon: "standings" },
     { href: `${base}/awards`, label: "Awards", icon: "awards" },
