@@ -32,11 +32,15 @@ export default async function proxy(request: NextRequest) {
     },
   );
 
-  // getUser() revalidates the token with Supabase; getSession() would
-  // trust whatever is in the cookie.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims() verifies the token's signature locally (asymmetric signing
+  // keys) with no auth-server round trip, and still refreshes the session
+  // when the access token is about to expire -- which is the whole reason
+  // this runs on every request, and why getSession() (trusts the cookie
+  // blind) was never an option. On legacy symmetric keys it falls back to
+  // a server call, i.e. no worse than the getUser() it replaces. This hop
+  // was on the critical path of every single request; now it is local.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const user = claimsData?.claims ?? null;
 
   const { pathname } = request.nextUrl;
   const isPublic = isPublicPath(pathname);

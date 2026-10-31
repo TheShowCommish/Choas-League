@@ -25,10 +25,16 @@ export async function getLeagueContext(
 ): Promise<LeagueContext> {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) redirect("/login");
+  // getClaims() verifies the session JWT -- locally, with no round trip to
+  // the auth server, when the project uses asymmetric signing keys (it
+  // falls back to a server call on legacy symmetric keys, i.e. no worse
+  // than getUser). The signature is still checked, so the identity is as
+  // trustworthy as getUser's, and every query below is RLS-guarded anyway.
+  // This runs on all 25 league pages, so dropping the auth-server hop here
+  // takes a serial cross-region round trip off every one of them.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims.sub;
+  if (!userId) redirect("/login");
 
   const [{ data: league }, { data: membership }, { data: teams }, { data: slots }] =
     await Promise.all([
@@ -37,7 +43,7 @@ export async function getLeagueContext(
         .from("league_members")
         .select("role")
         .eq("league_id", leagueId)
-        .eq("user_id", user.id)
+        .eq("user_id", userId)
         .maybeSingle(),
       supabase
         .from("teams")
@@ -57,9 +63,9 @@ export async function getLeagueContext(
 
   return {
     league: league as League,
-    userId: user.id,
+    userId,
     isCommissioner: membership.role === "commissioner",
-    myTeam: teamList.find((t) => t.owner_id === user.id) ?? null,
+    myTeam: teamList.find((t) => t.owner_id === userId) ?? null,
     teams: teamList,
     rosterSlots: (slots ?? []) as RosterSlot[],
   };
