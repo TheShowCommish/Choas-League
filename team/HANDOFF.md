@@ -1,84 +1,139 @@
-# Handoff — 2026-10-01
+# Chaos League — session handoff
 
-Written by the Lead at the end of a long session. Read this, then
-`team/BOARD.md`, `team/RULES.md`, `team/PRODUCT.md`, `team/DECISIONS.md`,
-`team/QUESTIONS.md`. Those files are the team's memory; this file only says
-where things stood at the cut.
+_Written 2026-11-02. This supersedes any older HANDOFF.md. If team/BOARD.md
+disagrees on task status, trust BOARD.md (it's the live board); this file is the
+narrative of the most recent work._
 
-## State of the repo
-- Last commit: `5599815`. Everything through **T-010** is pushed and deployed, and
-  migrations **0001-0041** are applied to the live Supabase project.
-- **T-039 (lineup lock) is in flight and UNCOMMITTED.** It has passed 3 review
-  rounds and 1 test round; the tester's FAIL items 1 and 3 are fixed but that fix
-  has not been reviewed or re-tested. Uncommitted files:
-  - new: `supabase/migrations/0042_lineup_lock_enforcement.sql`,
-    `src/app/l/[leagueId]/lineup-lock.tsx`,
-    `src/app/l/[leagueId]/team/[teamId]/{actions.ts,lineup-override.tsx}`,
-    `scripts/lineup-lock.test.ts`, `scripts/lineup-lock-edges.test.ts`
-  - modified: `src/lib/{roster,lineup,types}.ts`, `my-team/{actions,editor,page}.tsx`,
-    `team/[teamId]/page.tsx`, `players/page.tsx`, `trades/page.tsx`,
-    `admin/{actions,settings-panel}.tsx`, `api/cron/lock-lineups/route.ts`,
-    `globals.css`, `scripts/{finalize-edges.test,seed-test-league}.ts`
-  - Checks last run: tsc, lint, build, db:verify clean; `npm test` 503/505 (the only
-    2 failures are the known live-feed test, T-005).
-  - **Not done:** a designer pass marking a dropped-but-locked player (`RosterEntry.onRoster === false`)
-    with a "Dropped" pill plus one line saying his points still count this week. The
-    executive interrupted that step; ask before restarting it.
-  - Then: reviewer → tester → commit → push → `npm run db:push` (0042).
+## 0. Read this first — who you're working with
 
-## Infrastructure (all working as of this handoff)
-- Hosting: **Vercel**, auto-deploys from `main`. Production: https://choas-league.vercel.app
-- Env vars are set in Vercel; `CRON_SECRET` was rotated and matches `.env.local` and the
-  GitHub secret. The scheduled-jobs workflow defaults `APP_URL` to the production URL.
-- GitHub Actions scheduled jobs pass (they had been failing silently for weeks).
-- `npm run db:push` works from this machine with `SUPABASE_DB_URL` in `.env.local`.
+The user is **not a developer.** Do not hand them developer tasks — no editing
+env files by hand, no percent-encoding, no CLI commands, no "find your region in
+the dashboard." They told us plainly: _"stop treating me like a developer, I
+literally do not understand any of this."_ So:
 
-## Demo league
-- `Fake Test League`, league id **3ca78f4e-339f-463c-9e43-6acbfae610fd**, join code `33A2768D`.
-- 12 teams, 2025 season played out to completion (week 17), real stat lines.
-- The executive owns a team and is commissioner. Every kickoff is in the past, so every
-  week is locked once 0042 ships; a league with a future kickoff is needed to show the
-  unlocked path.
-- Re-running `npm run seed:test-league` rebuilds it with a NEW id. Don't re-seed while
-  the executive is clicking around.
+- **Do the work for them.** Use your own tools (git, the REST API, the browser)
+  rather than asking them to run things.
+- **Verify, don't assume.** You can check prod state over the public REST API
+  (see §2) without any password.
+- **Explain outcomes in plain language.** One clear next step at a time.
+- The one thing only they can do is click buttons in the Supabase/Vercel web
+  UIs when something genuinely requires their login — and even then, give
+  numbered, no-jargon clicks, or drive their browser if offered.
 
-## Open with the executive
-- **He lost his login** (`j.don.sawyer@gmail.com`, display name CommishDburg). The app has
-  no password reset, so he has to reset it in the Supabase dashboard
-  (Authentication → Users), or sign up a new account and have the seed re-point the
-  league with `npm run seed:test-league -- --email <new address>`. Never set his password.
-- **T-060 (P0)** was queued because of that: a real forgot-password flow.
-- Open questions in `team/QUESTIONS.md`: none. Q1-Q12 are answered.
+## 1. Git state (exact, as of this handoff)
 
-## Priorities agreed with the executive
-1. T-039 finish and ship
-2. T-060 password reset
-3. T-056 carry lineups forward week to week (locks make this urgent)
-4. T-031 league privacy sweep (he asked that nobody see a league they aren't in)
-5. T-040 trade review settings, T-018 desktop shell + the 1024px split, T-021 split-view pilot
+- **`main` @ `abe2de4`** — pushed, in sync with `origin/main`. Contains the
+  getClaims performance fix (§3) and `team/PERF.md`. **Deployable as-is.**
+- **`feat/notifications-watchlist` @ `ab64d7e`** — pushed to origin. Exactly
+  **one commit ahead of main** (a clean fast-forward). Holds the T-072
+  notifications + T-074 watchlist feature code, the migration files
+  `0044_notifications.sql` / `0045_watchlist.sql`, and the entangled hunks in
+  shared files (nav, layout, players, trades/actions, cron routes, lib/types).
 
-## Environment notes
-- The previous session had a dev server running on port 3000 (`preview_start` name `dev`,
-  from `.claude/launch.json`). A new session does not inherit it: start your own if you
-  need one, or expect "port in use" if the old one is still alive.
-- The five agent definitions in `.claude/agents/` (engineer, reviewer, tester, designer,
-  fantasy-expert) load at session start, so they are available immediately. In the previous
-  session they were created mid-run and had to be invoked through a general-purpose agent
-  until it restarted; that workaround is no longer needed.
-- `npm test` has 2 known failures in `scripts/feeds.test.ts` (a live Sleeper feed threshold,
-  queued as T-005). Treat any other failure as real.
-- Windows: the Bash tool is Git Bash. Heredocs containing Python triple quotes have broken
-  mid-command before; write a script into the scratchpad directory and run it instead.
-  `sed -i` works. Python's default stdout encoding here is cp1252, so avoid printing
-  characters like the arrow in board rows.
-- Subagents cannot spawn subagents, which is why the Lead must be the main session.
+The feature work was split onto its own branch so it couldn't deploy before its
+database tables existed. **Those tables now exist (see §2), so that reason is
+gone.**
 
-## How to work (short version; `team/RULES.md` is the full set)
-- You are the Lead. Subagents: `engineer`, `reviewer`, `tester`, `designer`, `fantasy-expert`.
-  One task at a time, one helper at a time.
-- Pipeline: engineer and/or designer → reviewer → tester → Lead commits, pushes, and runs
-  `db:push` if there's a migration.
-- Log every small decision in `DECISIONS.md`. Big decisions (see RULES.md) stop and go to
-  `QUESTIONS.md` with options and a recommendation.
-- Keep check-ins concise, minimise what the executive has to test by hand, and update
-  `team/CHECKIN.md` at the end of a run.
+## 2. Database state (VERIFIED this session)
+
+The user ran `apply-0044-0045.sql` in the **Supabase SQL Editor**. Confirmed via
+the public REST API (`GET /rest/v1/<table>?select=id&limit=1` with the anon key
+→ **HTTP 200** on both):
+
+- ✅ `public.notifications` exists (+ its indexes, RLS policies, and the
+  `notify()` SECURITY DEFINER function).
+- ✅ `public.player_watchlist` exists (+ index + RLS policies).
+
+**Caveat:** these were applied _outside_ `db:push`, so the `public.schema_migrations`
+history table does **not** record 0044/0045. If anyone ever runs `db:push`
+later, reconcile first with `npm run db:push -- --baseline 0045` (marks
+0001–0045 as applied without executing — correct, since 0001–0043 are already in
+prod and 0044/0045 we just ran). Both migrations are idempotent (`if not
+exists`, `drop/create policy`, `create or replace`), so an accidental re-run is
+harmless.
+
+## 3. ➡️ The #1 next action — now unblocked
+
+**Merge `feat/notifications-watchlist` into `main` and push.** It's a
+fast-forward and it's safe now that the tables exist. This makes the in-app
+notification centre and the player watchlist live.
+
+```bash
+git checkout main
+git merge --ff-only feat/notifications-watchlist
+git push origin main
+```
+
+Then confirm the deploy is healthy (the notification bell shows in the league
+nav; `/l/<id>/watchlist` loads). The user has repeatedly authorized this
+("merge it all", "push it however you need to"); the only thing that was ever
+holding it back was the tables.
+
+## 4. Performance work shipped this session
+
+Full write-up is in **`team/PERF.md`**. Headline: the slow pages are not a query
+problem (the 0043 materialized-CTE fix already took the player pool from ~308s to
+~180ms) — they're slow from **serial Supabase round trips multiplied by a
+Vercel↔Supabase region mismatch.**
+
+**Shipped (on `main`, `abe2de4`):** `proxy.ts` and `getLeagueContext` now verify
+the session with `supabase.auth.getClaims()` instead of `auth.getUser()`. That
+removes **two serial auth-server round trips from every authed page** (getClaims
+verifies the JWT signature locally, no network hop, on asymmetric signing keys).
+Same security; falls back to a server call on legacy symmetric keys (no
+regression).
+
+- **To fully bank it:** the project should use **asymmetric JWT signing keys**
+  (Supabase → Auth → JWT Keys → _Migrate_; one click, current default). On
+  symmetric keys the change is a safe no-op.
+
+## 5. Biggest remaining performance win (easy, now that we know the region)
+
+**F1 — align the Vercel region to Supabase.** There is **no `vercel.json`**, so
+functions deploy to the default `iad1` (us-east-1). **The Supabase project is in
+`us-east-2`** (read from the pooler host in `.env.local`: `aws-0-us-east-2…`).
+Co-locating the functions removes the cross-region latency multiplier from every
+round trip. Add:
+
+```json
+// vercel.json  (repo root)
+{ "regions": ["cle1"] }
+```
+
+`cle1` is Vercel's us-east-2 (Cleveland) region = same AWS region as Supabase.
+**Confirm `cle1` is available on the user's Vercel plan before relying on it**
+(Hobby plans sometimes restrict region choice to a subset; if so, `iad1` is the
+nearest allowed fallback). This is a safe standalone commit.
+
+Other remaining items (detailed in PERF.md): **F3** cache the stable
+`getLeagueContext` reads (`league`/`teams`/`roster_slots`) via Next 16 `use
+cache` + `cacheTag`/`revalidateTag` — needs careful write-path invalidation;
+**F4** fold `fetchFacingRowsByPosition`'s two serial queries into one RPC (ride
+it with the next migration). **F5** (pool RPC) is already done.
+
+## 6. `.env.local` notes (secrets — don't echo into chat)
+
+- The user renamed the DB var to **`SUPABASE_DB_URL1`** (the **direct**
+  connection — `db.<ref>.supabase.co`, IPv6-only, does **not** connect from most
+  environments, including ours) and added **`SUPABASE_DB_URL2`** (the **Session
+  pooler** — `aws-0-us-east-2.pooler.supabase.com:5432`, IPv4, free, this is the
+  reachable one). `URL2` may still have the literal `[YOUR-PASSWORD]`
+  placeholder.
+- The real database password is inside `URL1`, between `postgres:` and the `@`.
+  It contains characters that must be percent-encoded for a URL (`$`→`%24`,
+  `/`→`%2F`, `?`→`%3F`). **You do the encoding — never ask the user to.**
+- **`db:push` reads the exact name `SUPABASE_DB_URL`** (no suffix). It's not
+  needed for the merge, but if a future task needs it, set `SUPABASE_DB_URL` to
+  the pooler string with the real encoded password (take password from `URL1`,
+  host/user from `URL2`).
+- The anon key is public (`NEXT_PUBLIC_…`) and safe to use in REST checks.
+
+## 7. Repo quirks to know
+
+- This is a **customized Next.js 16.3.3** — middleware is `src/proxy.ts`, not
+  `middleware.ts`. `AGENTS.md` warns that APIs may differ from training data;
+  read `node_modules/next/dist/docs/` before using unfamiliar Next APIs.
+- The team works via subagents (engineer → reviewer, etc.) orchestrated by a
+  Lead; see `team/BOARD.md` for the task board and `team/QA-T066.md` for the
+  executive click-through checklist (agents can't log in, so authed screens are
+  verified by code + the user).
