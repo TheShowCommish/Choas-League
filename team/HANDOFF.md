@@ -1,8 +1,8 @@
 # Chaos League — session handoff
 
-_Written 2026-11-02. This supersedes any older HANDOFF.md. If team/BOARD.md
-disagrees on task status, trust BOARD.md (it's the live board); this file is the
-narrative of the most recent work._
+_Updated 2026-11-02 (after the merge). Supersedes any older HANDOFF.md. If
+team/BOARD.md disagrees on task status, trust BOARD.md (it's the live board);
+this file is the narrative of the most recent work._
 
 ## 0. Read this first — who you're working with
 
@@ -22,17 +22,17 @@ literally do not understand any of this."_ So:
 
 ## 1. Git state (exact, as of this handoff)
 
-- **`main` @ `abe2de4`** — pushed, in sync with `origin/main`. Contains the
-  getClaims performance fix (§3) and `team/PERF.md`. **Deployable as-is.**
-- **`feat/notifications-watchlist` @ `ab64d7e`** — pushed to origin. Exactly
-  **one commit ahead of main** (a clean fast-forward). Holds the T-072
-  notifications + T-074 watchlist feature code, the migration files
-  `0044_notifications.sql` / `0045_watchlist.sql`, and the entangled hunks in
-  shared files (nav, layout, players, trades/actions, cron routes, lib/types).
+- **`main` @ `6bebb01`** — pushed, in sync with `origin/main`, working tree
+  clean. Recent commits (newest first):
+  - `6bebb01` Perf: pin Vercel functions to `cle1` (us-east-2) — the region fix.
+  - `14bbc3b` docs: the previous version of this handoff.
+  - `ab64d7e` T-072/T-074 notifications + watchlist (the merged feature work).
+  - `abe2de4` Perf: getClaims instead of per-request auth-server hop.
+- **`feat/notifications-watchlist`** — fully merged into `main` (was a clean
+  fast-forward). The branch still exists locally and on origin; it can be
+  deleted whenever, nothing depends on it.
 
-The feature work was split onto its own branch so it couldn't deploy before its
-database tables existed. **Those tables now exist (see §2), so that reason is
-gone.**
+Everything that was in flight is now on `main`. Nothing is held back.
 
 ## 2. Database state (VERIFIED this session)
 
@@ -40,100 +40,73 @@ The user ran `apply-0044-0045.sql` in the **Supabase SQL Editor**. Confirmed via
 the public REST API (`GET /rest/v1/<table>?select=id&limit=1` with the anon key
 → **HTTP 200** on both):
 
-- ✅ `public.notifications` exists (+ its indexes, RLS policies, and the
-  `notify()` SECURITY DEFINER function).
+- ✅ `public.notifications` exists (+ indexes, RLS policies, `notify()` function).
 - ✅ `public.player_watchlist` exists (+ index + RLS policies).
 
-**Caveat:** these were applied _outside_ `db:push`, so the `public.schema_migrations`
-history table does **not** record 0044/0045. If anyone ever runs `db:push`
-later, reconcile first with `npm run db:push -- --baseline 0045` (marks
-0001–0045 as applied without executing — correct, since 0001–0043 are already in
-prod and 0044/0045 we just ran). Both migrations are idempotent (`if not
-exists`, `drop/create policy`, `create or replace`), so an accidental re-run is
-harmless.
+**Caveat:** applied _outside_ `db:push`, so `public.schema_migrations` does
+**not** record 0044/0045. If anyone runs `db:push` later, reconcile first with
+`npm run db:push -- --baseline 0045`. Both migrations are idempotent, so an
+accidental re-run is harmless.
 
-## 3. ➡️ The #1 next action — now unblocked
+## 3. What is DONE vs OPEN
 
-**Merge `feat/notifications-watchlist` into `main` and push.** It's a
-fast-forward and it's safe now that the tables exist. This makes the in-app
-notification centre and the player watchlist live.
+**Done & live on `main` (deploying / deployed):**
 
-```bash
-git checkout main
-git merge --ff-only feat/notifications-watchlist
-git push origin main
-```
+- ✅ Notifications centre + bell (T-072) and player watchlist + stars (T-074) —
+  merged, and the DB tables they need exist, so they function.
+- ✅ getClaims performance fix (removes 2 serial auth-server round trips/page).
+- ✅ Vercel region pinned to `cle1` to co-locate with Supabase (us-east-2).
 
-Then confirm the deploy is healthy (the notification bell shows in the league
-nav; `/l/<id>/watchlist` loads). The user has repeatedly authorized this
-("merge it all", "push it however you need to"); the only thing that was ever
-holding it back was the tables.
+**Open items (none are blocking; do NOT start work unless the user asks):**
 
-## 4. Performance work shipped this session
+1. **Confirm the Vercel deploy succeeded.** The region pin assumes the user's
+   Vercel plan allows `cle1` (single-region is normally allowed on every plan,
+   so this is low risk, but unverified from here). If the deploy errors on the
+   region, revert just `6bebb01` (`git revert 6bebb01` + push) — it's isolated
+   on purpose; notifications/watchlist stay live.
+2. **(Optional) Asymmetric JWT keys.** To fully bank the getClaims fix, the
+   project should migrate to asymmetric JWT signing keys (Supabase → Auth → JWT
+   Keys → _Migrate_, one click). On legacy symmetric keys the fix is a safe
+   no-op — nothing breaks either way.
 
-Full write-up is in **`team/PERF.md`**. Headline: the slow pages are not a query
-problem (the 0043 materialized-CTE fix already took the player pool from ~308s to
-~180ms) — they're slow from **serial Supabase round trips multiplied by a
-Vercel↔Supabase region mismatch.**
+## 4. Performance deep-dive — where the remaining wins are
 
-**Shipped (on `main`, `abe2de4`):** `proxy.ts` and `getLeagueContext` now verify
-the session with `supabase.auth.getClaims()` instead of `auth.getUser()`. That
-removes **two serial auth-server round trips from every authed page** (getClaims
-verifies the JWT signature locally, no network hop, on asymmetric signing keys).
-Same security; falls back to a server call on legacy symmetric keys (no
-regression).
+Full write-up: **`team/PERF.md`**. The slow pages are not a query problem (0043's
+materialized-CTE fix already took the player pool from ~308s to ~180ms) — they
+were slow from serial Supabase round trips × a Vercel↔Supabase region mismatch.
+Two of the three top levers are now shipped (getClaims, region pin).
 
-- **To fully bank it:** the project should use **asymmetric JWT signing keys**
-  (Supabase → Auth → JWT Keys → _Migrate_; one click, current default). On
-  symmetric keys the change is a safe no-op.
+Still available if the user wants more speed work later:
 
-## 5. Biggest remaining performance win (easy, now that we know the region)
+- **F3** — cache the stable `getLeagueContext` reads (`league`/`teams`/
+  `roster_slots`) via Next 16 `use cache` + `cacheTag`/`revalidateTag`. Needs
+  careful write-path invalidation + its own test pass; not a drive-by.
+- **F4** — fold `fetchFacingRowsByPosition`'s two serial queries into one SQL
+  RPC (removes a round trip from My Team). New migration — ride it with the next
+  one. Remember the `--baseline` note in §2 if `db:push` is still bypassed.
+- **F5** — player-pool RPC: already fixed (0043). Nothing to do.
 
-**F1 — align the Vercel region to Supabase.** There is **no `vercel.json`**, so
-functions deploy to the default `iad1` (us-east-1). **The Supabase project is in
-`us-east-2`** (read from the pooler host in `.env.local`: `aws-0-us-east-2…`).
-Co-locating the functions removes the cross-region latency multiplier from every
-round trip. Add:
-
-```json
-// vercel.json  (repo root)
-{ "regions": ["cle1"] }
-```
-
-`cle1` is Vercel's us-east-2 (Cleveland) region = same AWS region as Supabase.
-**Confirm `cle1` is available on the user's Vercel plan before relying on it**
-(Hobby plans sometimes restrict region choice to a subset; if so, `iad1` is the
-nearest allowed fallback). This is a safe standalone commit.
-
-Other remaining items (detailed in PERF.md): **F3** cache the stable
-`getLeagueContext` reads (`league`/`teams`/`roster_slots`) via Next 16 `use
-cache` + `cacheTag`/`revalidateTag` — needs careful write-path invalidation;
-**F4** fold `fetchFacingRowsByPosition`'s two serial queries into one RPC (ride
-it with the next migration). **F5** (pool RPC) is already done.
-
-## 6. `.env.local` notes (secrets — don't echo into chat)
+## 5. `.env.local` notes (secrets — don't echo into chat)
 
 - The user renamed the DB var to **`SUPABASE_DB_URL1`** (the **direct**
-  connection — `db.<ref>.supabase.co`, IPv6-only, does **not** connect from most
-  environments, including ours) and added **`SUPABASE_DB_URL2`** (the **Session
-  pooler** — `aws-0-us-east-2.pooler.supabase.com:5432`, IPv4, free, this is the
-  reachable one). `URL2` may still have the literal `[YOUR-PASSWORD]`
-  placeholder.
-- The real database password is inside `URL1`, between `postgres:` and the `@`.
-  It contains characters that must be percent-encoded for a URL (`$`→`%24`,
-  `/`→`%2F`, `?`→`%3F`). **You do the encoding — never ask the user to.**
-- **`db:push` reads the exact name `SUPABASE_DB_URL`** (no suffix). It's not
-  needed for the merge, but if a future task needs it, set `SUPABASE_DB_URL` to
-  the pooler string with the real encoded password (take password from `URL1`,
-  host/user from `URL2`).
+  connection — IPv6-only, does **not** connect from most environments) and added
+  **`SUPABASE_DB_URL2`** (the **Session pooler** —
+  `aws-0-us-east-2.pooler.supabase.com:5432`, IPv4, free, the reachable one).
+  `URL2` may still have the literal `[YOUR-PASSWORD]` placeholder.
+- The real DB password is inside `URL1`, between `postgres:` and the `@`. It has
+  characters that must be percent-encoded for a URL (`$`→`%24`, `/`→`%2F`,
+  `?`→`%3F`). **You do the encoding — never ask the user to.**
+- **`db:push` reads the exact name `SUPABASE_DB_URL`** (no suffix). Not needed
+  for anything open above; if a future task needs it, set `SUPABASE_DB_URL` to
+  the pooler string with the real encoded password.
 - The anon key is public (`NEXT_PUBLIC_…`) and safe to use in REST checks.
 
-## 7. Repo quirks to know
+## 6. Repo quirks to know
 
-- This is a **customized Next.js 16.3.3** — middleware is `src/proxy.ts`, not
-  `middleware.ts`. `AGENTS.md` warns that APIs may differ from training data;
-  read `node_modules/next/dist/docs/` before using unfamiliar Next APIs.
-- The team works via subagents (engineer → reviewer, etc.) orchestrated by a
-  Lead; see `team/BOARD.md` for the task board and `team/QA-T066.md` for the
-  executive click-through checklist (agents can't log in, so authed screens are
-  verified by code + the user).
+- Customized **Next.js 16.3.3** — middleware is `src/proxy.ts`, not
+  `middleware.ts`. `AGENTS.md` warns APIs may differ from training data; read
+  `node_modules/next/dist/docs/` before using unfamiliar Next APIs.
+- The team works via subagents (engineer → reviewer, etc.) led by a Lead; see
+  `team/BOARD.md` for the task board and `team/QA-T066.md` for the executive
+  click-through checklist (agents can't log in, so authed screens are verified
+  by code + the user).
